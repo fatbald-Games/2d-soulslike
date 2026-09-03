@@ -80,7 +80,31 @@ func _process(_delta: float) -> bool:
 		132:
 			_grab("04_pause")
 		136:
+			_key(KEY_ESCAPE)
+			_warp(56, 50)         # the descent shaft, ladder and ledges
+		160:
+			_grab("05_descent")
+		164:
+			_warp(96, 57)         # the ossuary, under its stepped beams
+		190:
+			_grab("06_ossuary")
+		194:
+			_warp(120, 27)        # the ramparts, high above everything
+		220:
+			_grab("07_ramparts")
+		224:
 			print("done.")
 			quit(0)
 			return true
 	return false
+
+
+## Drop the knight at a tile so a shot can be taken somewhere specific.
+func _warp(tx: int, ty: int) -> void:
+	var p = current_scene.player
+	p.global_position = Vector2((tx + 0.5) * LevelMap.TILE,
+			float((ty + 1) * LevelMap.TILE))
+	p.velocity = Vector2.ZERO
+	for c in p.get_children():
+		if c is Camera2D:
+			(c as Camera2D).reset_smoothing()   # otherwise the shot is mid-pan

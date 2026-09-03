@@ -12,7 +12,16 @@ signal died
 # --- tuning ------------------------------------------------------------------
 const SPEED := 78.0
 const GRAVITY := 900.0
-const JUMP_VELOCITY := -235.0
+# Apex is v^2/2g = 40.5px, a hair over two 16px tiles. The level generator
+# builds every step against exactly this number (see REACH_AT_RISE in
+# tools/gen_level.py) -- changing it without regenerating the level will strand
+# the knight under ledges he used to reach.
+const JUMP_VELOCITY := -270.0
+
+const CLIMB_SPEED := 52.0
+const LADDER_HOP := -180.0         # pushing off a ladder
+const DROP_THRU_TIME := 0.28       # how long beams are ignored after down+jump
+const BEAM_LAYER := 2              # one-way beams live on their own layer
 
 const ROLL_SPEED := 168.0
 const ROLL_TIME := 0.42
@@ -34,7 +43,7 @@ const ROLL_COST := 22.0
 const HURT_TIME := 0.28
 const INVULN_AFTER_HIT := 0.65
 
-enum State { IDLE, RUN, ATTACK, ROLL, HURT, DEAD }
+enum State { IDLE, RUN, ATTACK, ROLL, HURT, DEAD, CLIMB }
 
 var state: State = State.IDLE
 var facing := 1                    # +1 right, -1 left
@@ -46,16 +55,27 @@ var _t := 0.0                      # time inside the current state
 var _regen_block := 0.0
 var _invuln := 0.0
 var _hit_done := false
+var _drop_thru := 0.0              # >0 while falling through a one-way beam
+var _level: Node = null            # asked whether a ladder is under him
 
 @onready var sprite: AnimatedSprite2D = $Sprite
 
 
 func _ready() -> void:
 	add_to_group("player")
+	_level = get_tree().get_first_node_in_group("level")
 	sprite.play("idle")
 	health_changed.emit(health, HEALTH_MAX)
 	stamina_changed.emit(stamina, STAMINA_MAX)
 	souls_changed.emit(souls)
+
+
+## True where a ladder tile covers him — checked at the chest, not the feet, so
+## he still counts as on the ladder while standing on the floor at its foot.
+func _on_ladder() -> bool:
+	if _level == null or not _level.has_method("is_ladder"):
+		return false
+	return _level.is_ladder(global_position + Vector2(0, -12))
 
 
 func is_invulnerable() -> bool:
@@ -68,8 +88,10 @@ func _physics_process(delta: float) -> void:
 	_t += delta
 	_invuln = maxf(0.0, _invuln - delta)
 	_tick_stamina(delta)
+	_tick_drop_thru(delta)
 
-	if not is_on_floor():
+	# climbing hangs off the wall: no gravity while he has hold of a rung
+	if not is_on_floor() and state != State.CLIMB:
 		velocity.y += GRAVITY * delta
 
 	match state:
@@ -79,6 +101,8 @@ func _physics_process(delta: float) -> void:
 			_attack_state(delta)
 		State.ROLL:
 			_roll_state(delta)
+		State.CLIMB:
+			_climb_state(delta)
 		State.HURT:
 			_decelerate(delta, 420.0)
 			if _t >= HURT_TIME:
@@ -90,6 +114,16 @@ func _physics_process(delta: float) -> void:
 	_update_flash()
 
 
+## One-way beams are their own collision layer, so dropping through one is just
+## a matter of not looking at that layer for a moment.
+func _tick_drop_thru(delta: float) -> void:
+	if _drop_thru <= 0.0:
+		return
+	_drop_thru -= delta
+	if _drop_thru <= 0.0:
+		set_collision_mask_value(BEAM_LAYER, true)
+
+
 # --- states ------------------------------------------------------------------
 func _ground_state(delta: float) -> void:
 	if Input.is_action_just_pressed("attack") and _spend(ATTACK_COST):
@@ -97,6 +131,12 @@ func _ground_state(delta: float) -> void:
 		return
 	if Input.is_action_just_pressed("dodge") and _spend(ROLL_COST):
 		_enter(State.ROLL)
+		return
+
+	# up/down on a ladder takes hold of it
+	var vert := Input.get_axis("up", "down")
+	if vert != 0.0 and _on_ladder():
+		_enter(State.CLIMB)
 		return
 
 	var dir := Input.get_axis("left", "right")
@@ -109,7 +149,40 @@ func _ground_state(delta: float) -> void:
 		_set_state_anim(State.IDLE)
 
 	if Input.is_action_just_pressed("jump") and is_on_floor():
-		velocity.y = JUMP_VELOCITY
+		# down + jump drops through a beam instead of hopping off it
+		if Input.is_action_pressed("down"):
+			_begin_drop_thru()
+		else:
+			velocity.y = JUMP_VELOCITY
+
+
+func _begin_drop_thru() -> void:
+	_drop_thru = DROP_THRU_TIME
+	set_collision_mask_value(BEAM_LAYER, false)
+	velocity.y = 40.0                 # a nudge, so he clears the beam at once
+
+
+func _climb_state(_delta: float) -> void:
+	# stepping off sideways, or running out of ladder, puts him back on his feet
+	var dir := Input.get_axis("left", "right")
+	if dir != 0.0:
+		facing = 1 if dir > 0.0 else -1
+		velocity.x = dir * SPEED
+		_enter(State.IDLE)
+		return
+	if not _on_ladder():
+		_enter(State.IDLE)
+		return
+	if Input.is_action_just_pressed("jump"):
+		velocity.y = LADDER_HOP
+		_enter(State.IDLE)
+		return
+
+	velocity.x = 0.0
+	var vert := Input.get_axis("up", "down")
+	velocity.y = vert * CLIMB_SPEED
+	# the roll frames read as a climbing scramble; freeze them when he stops
+	sprite.speed_scale = 1.0 if vert != 0.0 else 0.0
 
 
 func _attack_state(delta: float) -> void:
@@ -131,6 +204,7 @@ func _enter(next: State) -> void:
 	state = next
 	_t = 0.0
 	_hit_done = false
+	sprite.speed_scale = 1.0
 	match next:
 		State.IDLE:
 			sprite.play("idle")
@@ -140,6 +214,8 @@ func _enter(next: State) -> void:
 			sprite.play("attack")
 		State.ROLL:
 			sprite.play("roll")
+		State.CLIMB:
+			sprite.play("roll")   # the tucked frames read as a scramble
 		State.HURT:
 			sprite.play("idle")
 		State.DEAD:

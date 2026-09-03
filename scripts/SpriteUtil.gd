@@ -24,6 +24,14 @@ static func add_anim(sf: SpriteFrames, anim: String, tex: Texture2D,
 		sf.add_frame(anim, at)
 
 
+## One still frame out of a horizontal sheet, for props that do not animate.
+static func frame_of(tex: Texture2D, index: int, fw: int, fh: int) -> AtlasTexture:
+	var at := AtlasTexture.new()
+	at.atlas = tex
+	at.region = Rect2(index * fw, 0, fw, fh)
+	return at
+
+
 static func make_sprite() -> AnimatedSprite2D:
 	var s := AnimatedSprite2D.new()
 	s.centered = false

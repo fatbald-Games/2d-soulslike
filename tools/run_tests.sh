@@ -28,10 +28,28 @@ fi
 
 echo "Godot: $("$GODOT_BIN" --version)"
 
+status=0
+
+# Das Level zuerst: gen_level.py beweist, dass jeder Gegner, jedes Lagerfeuer
+# und jede Inschrift mit der echten Sprungphysik erreichbar ist. Ein Vorsprung,
+# auf den niemand kommt, soll hier auffallen und nicht erst im Spiel.
+if command -v python3 >/dev/null 2>&1; then
+	echo
+	echo "=== Level-Layout ==="
+	if python3 "$PROJECT_DIR/tools/gen_level.py"; then
+		if ! git -C "$PROJECT_DIR" diff --quiet -- scripts/LevelMap.gd 2>/dev/null; then
+			echo "-> LevelMap.gd war nicht aktuell und wurde neu erzeugt" >&2
+		fi
+	else
+		echo "-> Level-Layout: Erreichbarkeitsprüfung fehlgeschlagen" >&2
+		status=1
+	fi
+else
+	echo "python3 fehlt - Level-Prüfung übersprungen." >&2
+fi
+
 # Erster Lauf legt die .import-Dateien an; ohne sie findet der Test keine Texturen.
 "$GODOT_BIN" --headless --import --path "$PROJECT_DIR" >/dev/null 2>&1
-
-status=0
 
 # Ein Testskript laufen lassen. Godot liefert bei einem Laufzeitfehler im Skript
 # trotzdem Exit-Code 0, deshalb gilt jede SCRIPT-ERROR-Zeile ebenfalls als

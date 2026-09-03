@@ -20,6 +20,10 @@ var _sp_frame: TextureRect
 var _souls: PixelLabel
 var _fade: ColorRect
 var _died: PixelLabel
+var _area: PixelLabel
+var _inscription: PixelLabel
+var _area_tween: Tween
+var _shown_text := ""
 
 var _hp_ratio := 1.0
 var _ghost_ratio := 1.0
@@ -80,6 +84,18 @@ func _ready() -> void:
 	_died.modulate = Color(1, 1, 1, 0)     # faded in by show_died()
 	add_child(_died)
 
+	# --- region name, announced on crossing into a new part of the keep ---
+	_area = PixelLabel.make("", 2, UiTheme.BONE_BRIGHT)
+	_area.shadow_tint = Color(0, 0, 0, 0.85)
+	_area.modulate = Color(1, 1, 1, 0)
+	add_child(_area)
+
+	# --- the line on whichever inscribed stone he is standing on ---
+	_inscription = PixelLabel.make("", 1, Color(0.78, 0.72, 0.60))
+	_inscription.shadow_tint = Color(0, 0, 0, 0.9)
+	_inscription.modulate = Color(1, 1, 1, 0)
+	add_child(_inscription)
+
 
 func _frame(pos: Vector2, tex_name: String) -> TextureRect:
 	var f := TextureRect.new()
@@ -117,6 +133,33 @@ func set_stamina(cur: float, maxv: float) -> void:
 
 func set_souls(n: int) -> void:
 	_souls.text = "%d" % n
+
+
+## Fade a region name in over the middle of the screen, hold, fade out.
+func show_area(name: String) -> void:
+	_area.text = name
+	_area.center_on(UiTheme.VIEW.x * 0.5, 58)
+	if _area_tween != null and _area_tween.is_valid():
+		_area_tween.kill()
+	_area.modulate = Color(1, 1, 1, 0)
+	_area_tween = create_tween()
+	_area_tween.tween_property(_area, "modulate:a", 1.0, 0.7)
+	_area_tween.tween_interval(1.7)
+	_area_tween.tween_property(_area, "modulate:a", 0.0, 0.9)
+
+
+## Show (or clear) the line carved into the stone underfoot. Called every frame,
+## so it only touches the label when the text actually changes.
+func show_inscription(text: String) -> void:
+	if text == _shown_text:
+		return
+	_shown_text = text
+	if text.is_empty():
+		_inscription.modulate = Color(1, 1, 1, 0)
+		return
+	_inscription.text = text
+	_inscription.center_on(UiTheme.VIEW.x * 0.5, UiTheme.VIEW.y - 30)
+	_inscription.modulate = Color(1, 1, 1, 1)
 
 
 func show_died() -> void:

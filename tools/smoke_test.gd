@@ -28,6 +28,8 @@ var _iframe_gap_seen := false
 var _windup_seen := false
 var _strike_seen := false
 var _old_main: Node
+var _y0 := 0.0
+var _ladder_tile := Vector2i.ZERO
 
 
 func _initialize() -> void:
@@ -38,6 +40,16 @@ func _initialize() -> void:
 	# (the respawn path) behaves here exactly as it does in a real run
 	current_scene = _main
 	print("— Ashen Hollow smoke test —")
+
+
+## Counted from the map rather than hard-coded, so re-cutting the level in
+## tools/gen_level.py cannot silently invalidate this test.
+func _map_hollows() -> int:
+	var n := 0
+	for e in LevelMap.ENTITIES:
+		if e["kind"] == "hollow":
+			n += 1
+	return n
 
 
 func _ok(label: String, cond: bool, detail: String = "") -> void:
@@ -59,7 +71,7 @@ func _release(action: String) -> void:
 
 
 func _release_all() -> void:
-	for a in ["left", "right", "jump", "attack", "dodge"]:
+	for a in ["left", "right", "up", "down", "jump", "attack", "dodge"]:
 		Input.action_release(a)
 
 
@@ -84,9 +96,10 @@ func _physics_process(_delta: float) -> bool:
 		4: _phase_kill_and_reward()
 		5: _phase_roll_iframes()
 		6: _phase_hollow_attack_loop()
-		7: _phase_hud()
-		8: _phase_damage_and_death()
-		9: _phase_respawn()
+		7: _phase_traversal()
+		8: _phase_hud()
+		9: _phase_damage_and_death()
+		10: _phase_respawn()
 		_: return _finish()
 	return false
 
@@ -100,7 +113,8 @@ func _phase_boot() -> void:
 			_phase = 99
 			return
 		var enemies := get_nodes_in_group("enemy")
-		_ok("two hollows spawned", enemies.size() == 2, "got %d" % enemies.size())
+		_ok("every hollow on the map spawned", enemies.size() == _map_hollows(),
+				"got %d, map lists %d" % [enemies.size(), _map_hollows()])
 		_ok("HUD built", _main.hud != null)
 		_ok("input actions registered", InputMap.has_action("attack") and InputMap.has_action("dodge"))
 		return
@@ -285,6 +299,105 @@ func _phase_hollow_attack_loop() -> void:
 	_next()
 
 
+## Vertical movement — the whole point of the bigger map. Climbing a ladder and
+## dropping through a beam are both easy to break in ways the flat-corridor
+## tests would never notice.
+func _phase_traversal() -> void:
+	var lvl: Level = _main.level
+	if _phase_frame == 0:
+		_ok("the level exposes a world bigger than one screen",
+				lvl.world_size().x > 2000.0 and lvl.world_size().y > 700.0,
+				"world=%s" % lvl.world_size())
+		_ok("the map defines named regions", LevelMap.AREAS.size() >= 4,
+				"%d areas" % LevelMap.AREAS.size())
+		_ok("the map defines ladders and beams",
+				LevelMap.BEAMS.size() > 0 and _map_has_ladder())
+
+		# put him on the long descent ladder, at the ossuary end
+		_ladder_tile = _find_ladder_bottom()
+		_player.global_position = Vector2((_ladder_tile.x + 0.5) * LevelMap.TILE,
+				float((_ladder_tile.y + 1) * LevelMap.TILE))
+		_player.velocity = Vector2.ZERO
+		_player.health = Player.HEALTH_MAX
+		_player._invuln = 0.0
+		return
+	if _phase_frame == 4:
+		_ok("the knight is standing on a ladder tile",
+				lvl.is_ladder(_player.global_position + Vector2(0, -12)))
+		_y0 = _player.global_position.y
+		_press("up")
+		return
+	if _phase_frame == 8:
+		_ok("holding up on a ladder starts a climb",
+				_player.state == Player.State.CLIMB, "state=%d" % _player.state)
+		return
+	if _phase_frame == 45:
+		_ok("climbing carries him upward",
+				_player.global_position.y < _y0 - 20.0,
+				"rose %.1f px" % (_y0 - _player.global_position.y))
+		_ok("gravity is off while climbing", _player.velocity.y <= 0.0,
+				"vy=%.1f" % _player.velocity.y)
+		_release_all()
+		_y0 = _player.global_position.y
+		return
+	if _phase_frame == 52:
+		# releasing mid-ladder must HANG, not drop him: letting go of the keys
+		# is not letting go of the rung
+		_ok("he hangs on the ladder with no input",
+				_player.state == Player.State.CLIMB, "state=%d" % _player.state)
+		_ok("hanging does not slide him down",
+				absf(_player.global_position.y - _y0) < 2.0,
+				"drifted %.1f px" % (_player.global_position.y - _y0))
+		_press("right")
+		return
+	if _phase_frame == 58:
+		_ok("stepping sideways lets go of the ladder",
+				_player.state != Player.State.CLIMB, "state=%d" % _player.state)
+		_release_all()
+		# now a one-way beam: land on top of one, then drop through it
+		var beam: Array = LevelMap.BEAMS[0]
+		var bx: int = beam[0]
+		var by: int = beam[1]
+		_player.global_position = Vector2((bx + 2.5) * LevelMap.TILE,
+				float(by * LevelMap.TILE) - 2.0)
+		_player.velocity = Vector2.ZERO
+		return
+	if _phase_frame == 75:
+		_ok("a one-way beam holds him up", _player.is_on_floor(),
+				"y=%.1f on_floor=%s" % [_player.global_position.y, _player.is_on_floor()])
+		_y0 = _player.global_position.y
+		_press("down")
+		_press("jump")
+		return
+	if _phase_frame == 78:
+		_release_all()
+		return
+	if _phase_frame >= 100:
+		_ok("down + jump drops him through the beam",
+				_player.global_position.y > _y0 + 8.0,
+				"fell %.1f px" % (_player.global_position.y - _y0))
+		_ok("the beam layer is listening again afterwards",
+				_player.get_collision_mask_value(Level.BEAM_LAYER))
+		_next()
+
+
+func _map_has_ladder() -> bool:
+	for row in LevelMap.MAP:
+		if row.contains("H"):
+			return true
+	return false
+
+
+## The lowest tile of the first ladder column, i.e. somewhere he can stand.
+func _find_ladder_bottom() -> Vector2i:
+	for ty in range(LevelMap.H - 1, 0, -1):
+		var row: String = LevelMap.MAP[ty]
+		for tx in LevelMap.W:
+			if row[tx] == "H" and LevelMap.MAP[ty + 1][tx] == "#":
+				return Vector2i(tx, ty)
+	return Vector2i(-1, -1)
+
+
 ## The HUD is the one part a headless run cannot LOOK at, so assert the things
 ## that made it wrong before: the bone frame is opaque, so a fill added before
 ## it is painted over and the bar reads as empty no matter what the value is.
@@ -398,7 +511,7 @@ func _phase_respawn() -> void:
 				"health=%.1f" % fresh.player.health)
 		_ok("the respawned player is alive", fresh.player.state != Player.State.DEAD)
 	_ok("the reloaded scene repopulates its enemies",
-			get_nodes_in_group("enemy").size() == 2,
+			get_nodes_in_group("enemy").size() == _map_hollows(),
 			"got %d" % get_nodes_in_group("enemy").size())
 	_next()
 

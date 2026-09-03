@@ -3,19 +3,20 @@ extends Node2D
 ## Builds the level, the lighting, the HUD and the actors entirely in code, so
 ## the project runs without depending on pre-generated .import/.uid files.
 
-const TW := 16
-const COLS := 64
-const ROWS := 14
-const FLOOR_ROWS := 5
-
+const TW := LevelMap.TILE
 const S := "res://assets/sprites/"
 
-var floor_top := float((ROWS - FLOOR_ROWS) * TW)     # y of the walkable surface
-var world_w := float(COLS * TW)
-var world_h := float(ROWS * TW)
+const RUNE_READ_RANGE := 26.0        # how close you must stand to read a stone
+
+var level: Level
+var world_w := float(LevelMap.W * TW)
+var world_h := float(LevelMap.H * TW)
+var floor_top := 0.0                 # y the player spawns standing on
 
 var _lights: Array = []
+var _runes: Array = []               # [{node, pos, text}]
 var _t := 0.0
+var _area := ""
 var hud                     # HUD.gd instance (untyped: it has no class_name)
 var pause_menu              # PauseMenu.gd instance
 var player: Player
@@ -23,15 +24,12 @@ var player: Player
 
 func _ready() -> void:
 	_setup_input()
-	_build_ground()
-	_build_collision()
-	_build_props()
-	_build_lighting()
+	level = Level.new()
+	add_child(level)
+	_build_lighting_root()
 	hud = _build_hud()
 	pause_menu = _build_pause_menu()
-	player = _spawn_player(Vector2(72, floor_top))
-	_spawn_hollow(Vector2(430, floor_top))
-	_spawn_hollow(Vector2(760, floor_top))
+	_spawn_entities()
 	_wire_hud()
 	_build_camera()
 
@@ -40,7 +38,11 @@ func _ready() -> void:
 func _setup_input() -> void:
 	_action("left", [KEY_A, KEY_LEFT])
 	_action("right", [KEY_D, KEY_RIGHT])
-	_action("jump", [KEY_SPACE, KEY_W, KEY_UP])
+	# up/down drive the ladders, so jump keeps SPACE to itself — sharing W with
+	# "jump" would make every climb start with a hop
+	_action("up", [KEY_W, KEY_UP])
+	_action("down", [KEY_S, KEY_DOWN])
+	_action("jump", [KEY_SPACE])
 	_action("attack", [KEY_J], MOUSE_BUTTON_LEFT)
 	_action("dodge", [KEY_K, KEY_SHIFT])
 
@@ -64,26 +66,29 @@ func _tex(tex_name: String) -> Texture2D:
 	return load(S + tex_name) as Texture2D
 
 
-func _build_ground() -> void:
-	RenderingServer.set_default_clear_color(Color(0.03, 0.028, 0.045))
-	var floor_tex := _tex("tile_floor.png")
-	var wall_tex := _tex("tile_wall.png")
-	for cy in ROWS:
-		for cx in COLS:
-			var s := Sprite2D.new()
-			s.texture = floor_tex if cy >= ROWS - FLOOR_ROWS else wall_tex
-			s.centered = false
-			s.position = Vector2(cx * TW, cy * TW)
-			add_child(s)
-
-
-func _build_collision() -> void:
-	var body := StaticBody2D.new()
-	add_child(body)
-	_box(body, Vector2(world_w * 0.5, floor_top + (world_h - floor_top) * 0.5),
-			Vector2(world_w, world_h - floor_top))          # the floor
-	_box(body, Vector2(-8, world_h * 0.5), Vector2(16, world_h))   # left wall
-	_box(body, Vector2(world_w + 8, world_h * 0.5), Vector2(16, world_h))
+## Everything in the dungeon is placed from LevelMap.ENTITIES, so moving a
+## bonfire is a change to the generator — and therefore something the
+## reachability check gets a say in — rather than a stray constant in here.
+func _spawn_entities() -> void:
+	for e in LevelMap.ENTITIES:
+		var kind: String = e["kind"]
+		var tx: int = e["x"]
+		var ty: int = e["y"]
+		# entity rows name the tile the actor STANDS IN, so its feet belong on
+		# the bottom edge of that tile
+		var foot := Vector2((tx + 0.5) * TW, float((ty + 1) * TW))
+		match kind:
+			"player":
+				floor_top = foot.y
+				player = _spawn_player(foot)
+			"hollow":
+				_spawn_hollow(foot)
+			"bonfire":
+				_bonfire(foot)
+			"torch":
+				_torch(Vector2((tx + 0.5) * TW, (ty + 0.5) * TW))
+			"rune":
+				_rune(foot, e["text"])
 
 
 func _box(parent: Node, pos: Vector2, size: Vector2) -> void:
@@ -95,11 +100,25 @@ func _box(parent: Node, pos: Vector2, size: Vector2) -> void:
 	parent.add_child(cs)
 
 
-func _build_props() -> void:
-	_anim_prop("bonfire.png", 24, 24, [0, 1, 2, 3], 8.0, Vector2(120, floor_top - 6))
-	for x in [56, 300, 560, 820, 980]:
-		_anim_prop("torch.png", 8, 10, [0, 1], 7.0, Vector2(float(x), 5 * TW))
-	_embers(Vector2(120, floor_top - 10))
+func _bonfire(foot: Vector2) -> void:
+	_anim_prop("bonfire.png", 24, 24, [0, 1, 2, 3], 8.0, foot + Vector2(0, -12))
+	_embers(foot + Vector2(0, -16))
+	_light(self, foot + Vector2(0, -14), Color(1.0, 0.72, 0.42), 1.55, 0.95, 0.13)
+
+
+func _torch(pos: Vector2) -> void:
+	_anim_prop("torch.png", 8, 10, [0, 1], 7.0, pos)
+	_light(self, pos + Vector2(0, 4), Color(1.0, 0.70, 0.40), 1.35, 1.05, 0.18)
+
+
+## An inscribed stone. It lights up and shows its line when you stand on it —
+## the only storytelling in the game, so it has to be readable in passing.
+func _rune(foot: Vector2, text: String) -> void:
+	var s := Sprite2D.new()
+	s.texture = SpriteUtil.frame_of(_tex("rune.png"), 0, 7, 7)
+	s.position = foot + Vector2(0, -5)
+	add_child(s)
+	_runes.append({"node": s, "pos": s.position, "text": text})
 
 
 func _anim_prop(anim_name: String, fw: int, fh: int, idx: Array, fps: float, pos: Vector2) -> void:
@@ -140,13 +159,15 @@ func _embers(pos: Vector2) -> void:
 	add_child(p)
 
 
-func _build_lighting() -> void:
+## Only the darkness itself — every actual light rides along with the torch or
+## bonfire that casts it, placed from the map.
+func _build_lighting_root() -> void:
+	RenderingServer.set_default_clear_color(Color(0.03, 0.028, 0.045))
 	var cm := CanvasModulate.new()
-	cm.color = Color(0.19, 0.18, 0.25)
+	# a big level needs a higher ambient floor than one flat corridor did,
+	# or the stretches between torches read as solid black nothing
+	cm.color = Color(0.30, 0.28, 0.36)
 	add_child(cm)
-	_light(self, Vector2(120, floor_top - 8), Color(1.0, 0.72, 0.42), 1.55, 0.95, 0.13)
-	for x in [56, 300, 560, 820, 980]:
-		_light(self, Vector2(float(x), 5 * TW + 6), Color(1.0, 0.70, 0.40), 1.0, 0.5, 0.18)
 
 
 func _light(parent: Node, pos: Vector2, color: Color, energy: float,
@@ -167,6 +188,10 @@ func _light(parent: Node, pos: Vector2, color: Color, energy: float,
 func _spawn_player(pos: Vector2) -> Player:
 	var p := Player.new()
 	p.position = pos
+	# collide with the world AND with one-way beams; Player mutes the beam
+	# layer on its own for a moment when dropping through one
+	p.set_collision_mask_value(Level.WORLD_LAYER, true)
+	p.set_collision_mask_value(Level.BEAM_LAYER, true)
 	_box(p, Vector2(0, -13), Vector2(12, 26))
 
 	var s := SpriteUtil.make_sprite()
@@ -191,6 +216,8 @@ func _spawn_player(pos: Vector2) -> Player:
 func _spawn_hollow(pos: Vector2) -> Hollow:
 	var h := Hollow.new()
 	h.position = pos
+	h.set_collision_mask_value(Level.WORLD_LAYER, true)
+	h.set_collision_mask_value(Level.BEAM_LAYER, true)
 	_box(h, Vector2(0, -12), Vector2(12, 24))
 
 	var s := SpriteUtil.make_sprite()
@@ -261,3 +288,30 @@ func _process(delta: float) -> void:
 		var a: float = e["amp"]
 		n.energy = e["base"] * (1.0 + a * sin(_t * 7.0 + e["phase"])
 				+ a * 0.5 * sin(_t * 17.0 + e["phase"]))
+	if player != null and is_instance_valid(player):
+		_track_area()
+		_track_runes()
+
+
+## The map is far too big to hold in your head, so crossing into a new region
+## announces itself the way a souls game does.
+func _track_area() -> void:
+	var here := level.area_at(player.global_position + Vector2(0, -12))
+	if here != "" and here != _area:
+		_area = here
+		hud.show_area(here)
+
+
+func _track_runes() -> void:
+	var nearest := ""
+	var best := RUNE_READ_RANGE
+	for r in _runes:
+		var pos: Vector2 = r["pos"]
+		var d := player.global_position.distance_to(pos)
+		if d < best:
+			best = d
+			nearest = r["text"]
+		var s: Sprite2D = r["node"]
+		s.texture = SpriteUtil.frame_of(_tex("rune.png"),
+				1 if d < RUNE_READ_RANGE else 0, 7, 7)
+	hud.show_inscription(nearest)

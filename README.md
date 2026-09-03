@@ -2,10 +2,10 @@
 
 Ein 2D-Soulslike in düsterer Retro-Pixelgrafik. **Engine: Godot 4.x.**
 
-Stand: **spielbarer Kampf-Slice mit Menüs.** Titelbildschirm, Pause-Menü und ein
-Knochen-HUD; dazu Laufen, springen, Angriff mit Schwert, Ausweichrolle mit
-i-Frames, Ausdauer-Haushalt, ein Gegner mit telegrafiertem Angriff, Seelen als
-Währung und ein „YOU DIED"-Respawn.
+Stand: **spielbarer Vertikal-Slice.** Ein Kerker aus fünf Bereichen über acht
+Bildschirme, mit Leitern, Vorsprüngen und Balken; Titelbildschirm, Pause-Menü
+und Knochen-HUD; Angriff, Ausweichrolle mit i-Frames, Ausdauer-Haushalt, ein
+Gegner mit telegrafiertem Angriff, Seelen als Währung und „YOU DIED"-Respawn.
 
 ![Titelbildschirm](tools/shots/01_title.png)
 
@@ -20,9 +20,11 @@ Währung und ein „YOU DIED"-Respawn.
 | Taste | Aktion |
 |---|---|
 | `A` / `D` (oder ←/→) | Laufen |
-| `Leertaste` / `W` | Springen |
+| `Leertaste` | Springen |
 | `J` oder linke Maustaste | Angriff |
 | `K` oder `Shift` | **Ausweichrolle** |
+| `W` `S` (oder ↑/↓) | **Leiter hoch/runter** |
+| `S` + `Leertaste` | durch einen Holzbalken **nach unten durchfallen** |
 | `Esc` | Pause-Menü |
 | `↑ ↓` / `W` `S`, `Enter` | in Menüs: wählen, bestätigen |
 
@@ -46,6 +48,49 @@ code-generiert (siehe Pipeline unten):
 - **Pause-Menü** (`Esc`) friert den Kerker ein und blendet ihn ab; das Menü
   selbst läuft in `PROCESS_MODE_ALWAYS` weiter, sonst könnte es sich nie wieder
   schließen.
+
+## Die Welt
+
+Der Kerker ist **192 × 64 Kacheln (3072 × 1024 px)** — acht Bildschirme breit,
+knapp fünf hoch, rund vierzehnmal so viel Fläche wie der alte Korridor. Man
+bewegt sich nicht mehr nur links/rechts, sondern über **Leitern, Vorsprünge und
+Holzbalken** auch hoch und runter.
+
+Fünf Bereiche, die als zusammenhängender Weg gedacht sind — man steigt hinab,
+läuft nach Osten durch und klettert auf der anderen Seite wieder hoch:
+
+| Bereich | Was er ist |
+|---|---|
+| **THE ASHEN GATE** | Startsims mit Lagerfeuer, zwei Stufen als Sprung-Tutorial |
+| **THE LONG DESCENT** | Schacht nach unten: eine lange Leiter, versetzte Vorsprünge |
+| **THE OSSUARY** | Die lange Galerie unten, mit einer hohen Halle voller Balken |
+| **THE CINDER WELL** | Grube unter der Galerie, zweites Lagerfeuer |
+| **THE RAMPARTS** | Hoher Wehrgang zurück nach Westen, endet an einem versiegelten Tor |
+
+Beim Betreten blendet der Name des Bereichs auf. **Acht Inschriften** liegen auf
+dem Weg — tritt man darauf, leuchten sie und zeigen ihre Zeile. Das ist die
+ganze Story: keine Zwischensequenzen, keine NPCs. Sie erzählen in der
+Reihenfolge, in der man sie körperlich erreicht, warum die Feste leer ist.
+
+### Warum der Level generiert wird
+
+`tools/gen_level.py` **schnitzt** den Kerker aus massivem Fels: das Gitter
+startet komplett gefüllt, Räume werden herausgeschnitten. So gibt es nie
+schwebende Geometrie und nie ein Loch ins Nichts.
+
+Der wichtigere Teil ist die Prüfung. Die Sprunghöhe ist
+`v²/2g = 270²/1800 = 40,5 px`, also gerade zwei Kacheln — und auf zwei Kacheln
+Höhe hat der Ritter erst ~13–34 px zur Seite zurückgelegt. Ein Absatz zwei
+Kacheln hoch **und** drei weit ist damit unerreichbar, was man einem Level von
+dieser Größe nicht ansieht. Deshalb beweist der Generator per Breitensuche über
+alle Steh-Kacheln, dass jeder Gegner, jedes Lagerfeuer und jede Inschrift vom
+Startpunkt aus erreichbar ist, und bricht sonst ab. Genau so sind beim Bauen
+drei tote Vorsprünge aufgefallen, die zu weit von ihrer Leiter entfernt lagen.
+
+Die Physik-Konstanten stehen deshalb an **zwei** Stellen im Gleichklang:
+`JUMP_VELOCITY` in `Player.gd` und `REACH_AT_RISE` in `gen_level.py`. Wer den
+Sprung ändert, muss den Level neu erzeugen — sonst strandet der Ritter unter
+Absätzen, die er vorher erreicht hat.
 
 ## Das Kampfsystem
 
@@ -79,15 +124,20 @@ tools/run_tests.sh                      # Godot aus dem PATH
 GODOT=/pfad/zu/godot tools/run_tests.sh # oder explizit
 ```
 
-Der Runner spielt **zwei Suiten** durch, zusammen **74 Zusicherungen**:
+Der Runner prüft erst das **Level-Layout** (Erreichbarkeit, siehe oben) und
+spielt dann **zwei Suiten** durch, zusammen **87 Zusicherungen**:
 
-- `tools/smoke_test.gd` (50) startet die echte `Main.tscn` und drückt Frame für
+- `tools/smoke_test.gd` (63) startet die echte `Main.tscn` und drückt Frame für
   Frame die Tasten: Landen und Laufen, der Ausdauer-Haushalt (inklusive: ein
   Angriff ohne Ausdauer startet gar nicht), die Trefferabfrage des Schwerts, die
   i-Frames der Rolle samt verwundbarer Erholung, der komplette Telegraf-Zyklus
-  des Hollows bis zum Schaden, Seelen, das HUD, Tod und Respawn.
+  des Hollows bis zum Schaden, **Klettern und Durchfallen**, Seelen, das HUD,
+  Tod und Respawn.
 - `tools/menu_test.gd` (24) läuft den Weg eines Spielers ab: navigieren,
   CONTROLS öffnen, Spiel starten, pausieren, zurück zum Titel.
+
+Die Level-Prüfung ist bewusst eine eigene Stufe: ein Vorsprung, auf den niemand
+springen kann, lässt **beide** Engine-Suiten fröhlich grün durchlaufen.
 
 Zwei Fallstricke, die der Runner deshalb extra abfängt:
 
@@ -108,7 +158,11 @@ Anzeige, in CI also Xvfb):
 xvfb-run -a godot --path . --script res://tools/screenshot.gd
 ```
 
-Legt `tools/shots/*.png` an: Titel, Steuerung, HUD im Spiel, Pause.
+Legt `tools/shots/*.png` an: Titel, Steuerung, HUD im Spiel, Pause und je ein
+Bild aus Abstieg, Ossarium und Wehrgang.
+
+![Der Abstieg](tools/shots/05_descent.png)
+![Das Ossarium](tools/shots/06_ossuary.png)
 
 ## Projektstruktur
 
@@ -119,7 +173,10 @@ ashen-hollow/
 │   ├─ MainMenu.tscn      Startszene (Titelbildschirm)
 │   └─ Main.tscn          Der Kampf-Slice
 ├─ scripts/
-│   ├─ Main.gd            Baut Level, Kollision, Licht, HUD und Akteure per Code
+│   ├─ Main.gd            Setzt Level, Licht, HUD und die Akteure aus der Karte zusammen
+│   ├─ Level.gd           Zeichnet das Gelände, baut die Kollision, Kachel-Abfragen
+│   ├─ LevelMap.gd        ERZEUGT von gen_level.py: Gitter, Kollisionsrechtecke,
+│   │                     Entities, Bereichs-Rechtecke — nicht von Hand ändern
 │   ├─ MainMenu.gd        Titelbildschirm: Fackeln, Funken, Menü, Steuerung
 │   ├─ PauseMenu.gd       Esc-Menü; läuft weiter, während der Baum pausiert
 │   ├─ MenuList.gd        Menü-Einträge mit Schädel-Cursor (von beiden genutzt)
@@ -140,10 +197,12 @@ ashen-hollow/
 │   ├─ hero_attack.png    44×32, 4 Frames    │ Füßen (Frame-Pixel 22,31) →
 │   ├─ hero_roll.png      44×32, 4 Frames    │ Godot-Offset (-22,-31)
 │   ├─ hollow.png         44×32, 6 Frames    ┘ [idle,idle,windup,strike,hurt,dead]
-│   ├─ tile_floor/wall.png, bonfire.png, torch.png, light_soft.png
+│   ├─ tile_floor/wall.png, tile_beam.png, tile_ladder.png, rune.png
+│   ├─ bonfire.png, torch.png, light_soft.png
 └─ tools/
     ├─ gen_art.py         >>> Der Pixelart-Generator (Quelle aller Sprites) <<<
-    ├─ smoke_test.gd      Headless-Durchlauf des Kampf-Slice (50 Checks)
+    ├─ gen_level.py       >>> Der Level-Generator (+ Erreichbarkeits-Beweis) <<<
+    ├─ smoke_test.gd      Headless-Durchlauf des Kampf-Slice (63 Checks)
     ├─ menu_test.gd       Headless-Durchlauf der Menüs (24 Checks)
     ├─ run_tests.sh       Startet Import + beide Suiten in einem Rutsch
     ├─ screenshot.gd      Nimmt echte Bildschirmfotos auf (braucht Anzeige)
@@ -183,7 +242,8 @@ die Engine setzt den Text daneben. Wer eins ändert, muss das andere mitziehen.
 
 ## Nächste Schritte
 
-1. **Lagerfeuer-Loop**: rasten = heilen + alle Gegner respawnen (der Kern der Struktur).
+1. **Lagerfeuer-Loop**: rasten = heilen + alle Gegner respawnen. Die zwei
+   Lagerfeuer stehen schon an den richtigen Stellen und warten nur auf die Logik.
 2. **Seelen fallen lassen**: beim Tod bleiben die Seelen liegen und lassen sich zurückholen.
 3. **Mehr Gegnertypen** und ein erster Boss mit mehreren Angriffsmustern.
 4. **Level-Design**: echte Tilemap mit Plattformen, Abkürzungen und Verzweigungen.

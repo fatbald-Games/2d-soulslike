@@ -185,6 +185,57 @@ def stone_floor(seed=1):
     return img
 
 
+def beam_tile():
+    """A one-way beam: bone-pale plank across the top of the tile, hollow below
+    so you can see it is something you stand ON rather than a wall."""
+    img = Image.new("RGBA", (16, 16), T)
+    px = img.load()
+    for x in range(16):
+        px[x, 0] = (12, 11, 16, 255)
+        px[x, 1] = (176, 168, 148, 255)
+        px[x, 2] = (140, 132, 114, 255)
+        px[x, 3] = (92, 86, 74, 255)
+        px[x, 4] = (12, 11, 16, 255)
+    for x in (0, 5, 10, 15):            # peg ends / grain
+        px[x, 2] = (74, 68, 58, 255)
+    return img
+
+
+def ladder_tile():
+    """Two rails and a rung. Tiles vertically, so a shaft of these reads as one
+    continuous ladder."""
+    img = Image.new("RGBA", (16, 16), T)
+    px = img.load()
+    RAIL = (150, 140, 118, 255)
+    RAIL_D = (86, 78, 64, 255)
+    for y in range(16):
+        for x in (3, 4):
+            px[x, y] = RAIL if x == 3 else RAIL_D
+        for x in (11, 12):
+            px[x, y] = RAIL if x == 11 else RAIL_D
+    for y in (4, 5):                     # the rung
+        for x in range(4, 12):
+            px[x, y] = RAIL if y == 4 else RAIL_D
+    return img
+
+
+def rune_frames():
+    """An inscribed stone that catches the light — dim, then lit when the
+    knight is close enough to read it."""
+    grid = [
+        "..ooo..",
+        ".oIWIo.",
+        "oIWeWIo",
+        "oIeeeIo",
+        "oIWeWIo",
+        ".oIWIo.",
+        "..ooo..",
+    ]
+    dim = grid_to_img(grid, UIPAL)
+    lit = grid_to_img(_swap(grid, 'e', 'Z'), UIPAL)
+    return [dim, lit]
+
+
 def stone_wall(seed=7):
     random.seed(seed)
     img = Image.new("RGBA", (16, 16), PAL['1'])
@@ -1203,6 +1254,11 @@ def main():
     save(hsheet(tf), "torch.png")
 
     save(soft_light(), "light_soft.png")
+
+    # --- traversal tiles + the inscribed stones ---
+    save(beam_tile(), "tile_beam.png")
+    save(ladder_tile(), "tile_ladder.png")
+    save(hsheet(rune_frames()), "rune.png")
 
     # --- in-game combat animation sheets (44x32 frames, shared anchor) ---
     hi = hero_idle32()
