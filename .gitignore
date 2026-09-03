@@ -1,0 +1,9 @@
+# Godot 4+
+.godot/
+/android/
+/build/
+export_presets.cfg
+*.tmp
+
+# Python art tooling
+tools/__pycache__/
