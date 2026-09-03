@@ -726,33 +726,66 @@ def skull_frames():
             grid_to_img(_swap(SKULL, 'e', 'Z'), UIPAL)]
 
 
-def bone_bar_frame(w, h, cap=5):
-    """A bone trough: knobbed caps at both ends, dark channel for the fill.
+def spiked_bar_frame(w, h, spike=6, tick_gap=9):
+    """A slender iron-and-bone gauge, not a loading bar: twin fangs flank a
+    small recessed plate. Returns (frame, overlay).
 
-    The channel is inset by `cap` horizontally and 2px vertically; the engine
-    draws the fill there (see HUD.channel_rect)."""
-    img = Image.new("RGBA", (w, h), T)
-    px = img.load()
+    The frame is OPAQUE and drawn first (fangs + plate + empty channel) — this
+    is what made the old rounded-knob bar read as generic; a pointed silhouette
+    reads as a weapon instead. The overlay is TRANSPARENT scoring drawn AFTER
+    the fill (thin ticks only, so it never needs to mask a rectangular
+    overflow the way an opaque piece would) — it breaks the fill into scored
+    segments instead of one solid smear.
+
+    cap = spike + 1 is the horizontal inset the engine draws the fill at (the
+    +1 is the plate's own rim); see UiTheme.HP_CAP / channel_size()."""
+    frame = Image.new("RGBA", (w, h), T)
+    px = frame.load()
     OUTL = UIPAL['o']
+    cy = (h - 1) / 2.0
+
     for y in range(h):
         for x in range(w):
-            in_cap = x < cap or x >= w - cap
-            if x == 0 or y == 0 or x == w - 1 or y == h - 1:
-                px[x, y] = OUTL
-            elif in_cap:
-                # rounded-off bone knob: shade top-lit, bottom-shadowed
-                px[x, y] = UIPAL['W'] if y <= h // 3 else (
-                    UIPAL['n'] if y >= h - 1 - h // 3 else UIPAL['I'])
-            elif y == 1:
-                px[x, y] = UIPAL['n']
-            elif y == h - 2:
-                px[x, y] = UIPAL['n']
+            if x < spike or x >= w - spike:
+                # --- fang: tapers from a single glinting point to the plate ---
+                lx = x if x < spike else (w - 1 - x)
+                half = (lx / float(spike)) * (h / 2.0)
+                d = abs(y - cy)
+                if d > half + 0.5:
+                    continue
+                if d > half - 0.9:
+                    px[x, y] = OUTL
+                elif lx == 0:
+                    px[x, y] = UIPAL['W']            # the tip glints
+                else:
+                    px[x, y] = UIPAL['I'] if y <= cy else UIPAL['n']
             else:
-                px[x, y] = (18, 16, 22, 255)      # empty channel
-    # nick the very corners so the caps read as rounded, not as bricks
-    for (cx, cy) in ((0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1)):
-        px[cx, cy] = T
-    return img
+                # --- plate: recessed channel, corners chamfered ---
+                is_edge = (x == spike or x == w - spike - 1 or y == 0 or y == h - 1)
+                cut_corner = ((x == spike or x == w - spike - 1)
+                              and (y == 0 or y == h - 1))
+                if cut_corner:
+                    continue
+                if is_edge:
+                    px[x, y] = OUTL
+                elif y == 1 or y == h - 2:
+                    px[x, y] = UIPAL['n']
+                else:
+                    px[x, y] = (18, 16, 22, 255)      # empty channel
+    # rivets, just inside the plate's top rim where the fangs meet it
+    _put(frame, spike + 1, 1, UIPAL['W'])
+    _put(frame, w - spike - 2, 1, UIPAL['W'])
+
+    # --- overlay: scoring ticks over the channel, drawn AFTER the fill ---
+    overlay = Image.new("RGBA", (w, h), T)
+    opx = overlay.load()
+    inner_x0, inner_x1 = spike + 1, w - spike - 1
+    x = inner_x0 + tick_gap
+    while x < inner_x1 - 1:
+        for y in range(2, h - 2):
+            opx[x, y] = (9, 8, 12, 130)
+        x += tick_gap
+    return frame, overlay
 
 
 def _put(img, x, y, col):
@@ -895,10 +928,30 @@ def save_ui(img, name):
     print("  wrote ui/%s" % name, img.size)
 
 
-def build_ui_preview(backdrop, hp_frame, sp_frame, skulls, game_tile):
+def _composite_bar(img, pos, frame, overlay, cap, frac, fill_col, edge_col):
+    """Mirrors HUD.gd's draw order exactly: frame, then fill, then a lit top
+    edge, then the scoring overlay on top of everything. Drifting from this
+    order is how the fill ended up invisible once already (the frame is
+    opaque and was covering it) -- keeping mock-up and engine on one code
+    path is cheaper than re-discovering that."""
+    ox, oy = pos
+    img.alpha_composite(frame, (ox, oy))
+    inner_w = frame.width - cap * 2
+    inner_h = frame.height - 4
+    fw = max(0, int(round(inner_w * frac)))
+    px = img.load()
+    for y in range(inner_h):
+        for x in range(fw):
+            px[ox + cap + x, oy + 2 + y] = edge_col if y < 2 else fill_col
+    img.alpha_composite(overlay, (ox, oy))
+
+
+def build_ui_preview(backdrop, hp_bar, sp_bar, skulls, game_tile):
     """A mock-up of the menu and the in-game HUD so the look can be judged
-    without opening the engine."""
+    without opening the engine. hp_bar / sp_bar are (frame, overlay, cap)."""
     w, h = 384, 216
+    hp_frame, hp_overlay, hp_cap = hp_bar
+    sp_frame, sp_overlay, sp_cap = sp_bar
     shot = backdrop.copy()
 
     # --- title, with an ember-red drop shadow ---
@@ -933,18 +986,11 @@ def build_ui_preview(backdrop, hp_frame, sp_frame, skulls, game_tile):
     out.alpha_composite(panel, (0, h))
 
     ox, oy = 8, h + 8
-    out.alpha_composite(hp_frame, (ox, oy))
-    out.alpha_composite(sp_frame, (ox, oy + hp_frame.height + 3))
-    px = out.load()
-    for y in range(2, hp_frame.height - 2):
-        for x in range(5, hp_frame.width - 5):
-            if x < 5 + int((hp_frame.width - 10) * 0.72):
-                px[ox + x, oy + y] = (150, 26, 24, 255) if y > 3 else (196, 44, 36, 255)
-    sy = oy + hp_frame.height + 3
-    for y in range(2, sp_frame.height - 2):
-        for x in range(4, sp_frame.width - 4):
-            if x < 4 + int((sp_frame.width - 8) * 0.55):
-                px[ox + x, sy + y] = (108, 126, 70, 255) if y > 3 else (140, 158, 92, 255)
+    _composite_bar(out, (ox, oy), hp_frame, hp_overlay, hp_cap, 0.72,
+                    (150, 26, 24, 255), (196, 44, 36, 255))
+    sy = oy + hp_frame.height + 2
+    _composite_bar(out, (ox, sy), sp_frame, sp_overlay, sp_cap, 0.55,
+                    (108, 126, 70, 255), (140, 158, 92, 255))
     out.alpha_composite(skulls[0], (ox, sy + sp_frame.height + 4))
     draw_text(out, "1240", ox + 14, sy + sp_frame.height + 7, 1, (208, 196, 150, 255))
     draw_text(out, "IN-GAME HUD", w - text_width("IN-GAME HUD", 1) - 8,
@@ -1195,14 +1241,19 @@ def main():
     save_ui(font_sheet(), "font_5x7.png")
     skulls = skull_frames()
     save_ui(hsheet(skulls), "skull.png")
-    hp_frame = bone_bar_frame(112, 13, cap=5)
-    sp_frame = bone_bar_frame(96, 11, cap=4)
+    HP_SPIKE, HP_CAP = 6, 7        # cap = spike + 1 (the plate's own rim)
+    SP_SPIKE, SP_CAP = 5, 6
+    hp_frame, hp_overlay = spiked_bar_frame(76, 10, spike=HP_SPIKE, tick_gap=9)
+    sp_frame, sp_overlay = spiked_bar_frame(64, 9, spike=SP_SPIKE, tick_gap=9)
     save_ui(hp_frame, "bar_frame_hp.png")
+    save_ui(hp_overlay, "bar_overlay_hp.png")
     save_ui(sp_frame, "bar_frame_sp.png")
+    save_ui(sp_overlay, "bar_overlay_sp.png")
     backdrop = menu_backdrop(wall, floor)
     save_ui(backdrop, "menu_bg.png")
 
-    ui_shot = build_ui_preview(backdrop, hp_frame, sp_frame, skulls, floor)
+    ui_shot = build_ui_preview(backdrop, (hp_frame, hp_overlay, HP_CAP),
+                                (sp_frame, sp_overlay, SP_CAP), skulls, floor)
     ui_shot.resize((ui_shot.width * 3, ui_shot.height * 3), Image.NEAREST).save(
         os.path.join(tools_dir, "ui_preview.png"))
     print("  wrote tools/ui_preview.png", ui_shot.size, "(x3)")

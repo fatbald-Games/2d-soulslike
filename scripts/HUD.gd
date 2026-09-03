@@ -30,33 +30,36 @@ var _sp_channel: Vector2
 
 func _ready() -> void:
 	var hp_pos := Vector2(8, 8)
-	var sp_pos := Vector2(8, 8 + UiTheme.HP_FRAME.y + 3)
+	var sp_pos := Vector2(8, 8 + UiTheme.HP_FRAME.y + 2)
 	_hp_channel = UiTheme.channel_size(UiTheme.HP_FRAME, UiTheme.HP_CAP)
 	_sp_channel = UiTheme.channel_size(UiTheme.SP_FRAME, UiTheme.SP_CAP)
 
-	# The bone frame is drawn FIRST: its channel is opaque, so anything added
-	# after it covers the fill completely. Frame, then ghost, then fill, then
-	# the lit top edge — back to front.
+	# Draw order matters: the plate is OPAQUE, so anything added after it is
+	# hidden underneath. Frame, then ghost, then fill, then the lit top edge,
+	# then the scoring overlay LAST — its ticks sit on top of the fill and
+	# read as scored segments instead of one solid smear.
 	_hp_frame = _frame(hp_pos, "bar_frame_hp.png")
 	var hp_origin := hp_pos + Vector2(UiTheme.HP_CAP, UiTheme.CHANNEL_INSET_Y)
 	_hp_ghost = _rect(hp_origin, _hp_channel, UiTheme.BLOOD_GHOST)
 	_hp_fill = _rect(hp_origin, _hp_channel, UiTheme.BLOOD)
 	_hp_edge = _rect(hp_origin, Vector2(_hp_channel.x, 2), UiTheme.BLOOD_HI)
+	_frame(hp_pos, "bar_overlay_hp.png")
 
 	# --- stamina ---
 	_sp_frame = _frame(sp_pos, "bar_frame_sp.png")
 	var sp_origin := sp_pos + Vector2(UiTheme.SP_CAP, UiTheme.CHANNEL_INSET_Y)
 	_st_fill = _rect(sp_origin, _sp_channel, UiTheme.STAMINA)
 	_st_edge = _rect(sp_origin, Vector2(_sp_channel.x, 2), UiTheme.STAMINA_HI)
+	_frame(sp_pos, "bar_overlay_sp.png")
 
 	# --- souls, counted beside a skull ---
 	var skull := TextureRect.new()
 	skull.texture = UiTheme.frame_tex("skull.png", 0, MenuList.SKULL_W, MenuList.SKULL_H)
-	skull.position = Vector2(8, sp_pos.y + UiTheme.SP_FRAME.y + 5)
+	skull.position = Vector2(8, sp_pos.y + UiTheme.SP_FRAME.y + 4)
 	add_child(skull)
 
 	_souls = PixelLabel.make("", 1, Color(0.816, 0.769, 0.588))
-	_souls.position = Vector2(22, sp_pos.y + UiTheme.SP_FRAME.y + 6)
+	_souls.position = Vector2(22, sp_pos.y + UiTheme.SP_FRAME.y + 5)
 	add_child(_souls)
 	set_souls(0)
 

@@ -26,12 +26,13 @@ const SUB_Y := 58
 const MENU_Y0 := 78
 const MENU_STEP := 18
 
-# --- bar geometry: the channel the fill is drawn into, inset inside the
-# bone frame by its end caps (see bone_bar_frame() in tools/gen_art.py) ---
-const HP_FRAME := Vector2(112, 13)
-const HP_CAP := 5
-const SP_FRAME := Vector2(96, 11)
-const SP_CAP := 4
+# --- bar geometry: twin fangs flank a small recessed plate; the channel the
+# fill is drawn into is inset by the fang length + the plate's own rim (see
+# spiked_bar_frame() in tools/gen_art.py, cap = spike + 1) ---
+const HP_FRAME := Vector2(76, 10)
+const HP_CAP := 7
+const SP_FRAME := Vector2(64, 9)
+const SP_CAP := 6
 const CHANNEL_INSET_Y := 2
 
 
