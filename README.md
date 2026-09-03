@@ -43,6 +43,23 @@ Trefferabfragen laufen bewusst über **explizite Rechteck-Tests** im Code
 (`Player._swing()`, `Hollow._strike()`) statt über Physik-Layer — deterministisch,
 leicht nachvollziehbar und ohne unsichtbare Konfiguration.
 
+## Testen (ohne Fenster)
+
+Der Kampf-Slice lässt sich komplett **headless** durchspielen — nützlich, um nach
+einer Änderung zu prüfen, ob noch alles läuft, ohne Godot zu öffnen:
+
+```bash
+tools/run_tests.sh                      # Godot aus dem PATH
+GODOT=/pfad/zu/godot tools/run_tests.sh # oder explizit
+```
+
+`tools/smoke_test.gd` startet dabei die echte `Main.tscn`, drückt Frame für Frame
+die Tasten und prüft **40 Zusicherungen**: Landen und Laufen, der Ausdauer-Haushalt
+(inklusive: ein Angriff ohne Ausdauer startet gar nicht), die Trefferabfrage des
+Schwerts, die i-Frames der Rolle samt verwundbarer Erholung, der komplette
+Telegraf-Zyklus des Hollows bis zum Schaden, Seelen-Belohnung, Tod — und der
+Respawn nach dem Szenen-Reload. Exit-Code 0 heißt: alles grün.
+
 ## Projektstruktur
 
 ```
@@ -64,6 +81,8 @@ ashen-hollow/
 │   ├─ tile_floor/wall.png, bonfire.png, torch.png, light_soft.png
 └─ tools/
     ├─ gen_art.py         >>> Der Pixelart-Generator (Quelle aller Sprites) <<<
+    ├─ smoke_test.gd      Headless-Durchlauf des Kampf-Slice (40 Checks)
+    ├─ run_tests.sh       Startet Import + Test in einem Rutsch
     ├─ combat.gif         Animations-Vorschau aller Kampf-Animationen
     ├─ combat_contact.png Kontaktbogen (Einzelbilder) zum Prüfen
     ├─ mood.gif / preview.png   Stimmungs-Vorschau

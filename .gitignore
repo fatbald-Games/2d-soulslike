@@ -1,5 +1,8 @@
 # Godot 4+
 .godot/
+# Import-Metadaten legt Godot beim ersten Öffnen selbst wieder an; die Sprites
+# stammen ohnehin aus gen_art.py, deshalb bleiben sie aus der Versionierung raus.
+*.import
 /android/
 /build/
 export_presets.cfg
