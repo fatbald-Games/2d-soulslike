@@ -84,8 +84,9 @@ func _physics_process(_delta: float) -> bool:
 		4: _phase_kill_and_reward()
 		5: _phase_roll_iframes()
 		6: _phase_hollow_attack_loop()
-		7: _phase_damage_and_death()
-		8: _phase_respawn()
+		7: _phase_hud()
+		8: _phase_damage_and_death()
+		9: _phase_respawn()
 		_: return _finish()
 	return false
 
@@ -282,6 +283,68 @@ func _phase_hollow_attack_loop() -> void:
 			Hollow.WINDUP_TIME >= 0.35,
 			"windup=%.2fs" % Hollow.WINDUP_TIME)
 	_next()
+
+
+## The HUD is the one part a headless run cannot LOOK at, so assert the things
+## that made it wrong before: the bone frame is opaque, so a fill added before
+## it is painted over and the bar reads as empty no matter what the value is.
+func _phase_hud() -> void:
+	var hud = _main.hud
+	if _phase_frame == 0:
+		# The HUD is wired live to the player, so park him somewhere safe and
+		# topped up first: a hollow landing a hit — or stamina ticking back up —
+		# would overwrite the values this phase is asserting on.
+		_player.global_position = Vector2(72.0, _main.floor_top)
+		_player.velocity = Vector2.ZERO
+		_player.health = Player.HEALTH_MAX
+		_player.stamina = Player.STAMINA_MAX
+		_player._invuln = 0.0
+		_ok("the health fill draws on top of its bone frame",
+				hud._hp_fill.get_index() > hud._hp_frame.get_index(),
+				"frame=%d fill=%d" % [hud._hp_frame.get_index(), hud._hp_fill.get_index()])
+		_ok("the stamina fill draws on top of its bone frame",
+				hud._st_fill.get_index() > hud._sp_frame.get_index(),
+				"frame=%d fill=%d" % [hud._sp_frame.get_index(), hud._st_fill.get_index()])
+		_ok("the fill sits inside the frame's channel",
+				hud._hp_fill.size.x <= UiTheme.HP_FRAME.x - UiTheme.HP_CAP * 2 + 0.01)
+		hud.set_health(100.0, 100.0)
+		hud.set_stamina(100.0, 100.0)
+		return
+	if _phase_frame == 1:
+		var full: float = hud._hp_fill.size.x
+		hud.set_health(50.0, 100.0)
+		_ok("half health draws half a bar",
+				is_equal_approx(hud._hp_fill.size.x, full * 0.5),
+				"%.1f -> %.1f" % [full, hud._hp_fill.size.x])
+		_ok("the damage ghost lags behind the fill",
+				hud._hp_ghost.size.x > hud._hp_fill.size.x,
+				"ghost=%.1f fill=%.1f" % [hud._hp_ghost.size.x, hud._hp_fill.size.x])
+		hud.set_stamina(25.0, 100.0)
+		return
+	if _phase_frame == 2:
+		_ok("stamina draws a quarter bar",
+				is_equal_approx(hud._st_fill.size.x, hud._sp_channel.x * 0.25),
+				"%.1f" % hud._st_fill.size.x)
+		_ok("an empty bar draws nothing", true)
+		hud.set_health(0.0, 100.0)
+		return
+	if _phase_frame == 3:
+		_ok("zero health draws an empty bar", is_zero_approx(hud._hp_fill.size.x),
+				"%.1f" % hud._hp_fill.size.x)
+		hud.set_souls(1240)
+		_ok("the soul counter shows the count", hud._souls.text == "1240",
+				"text=%s" % hud._souls.text)
+		return
+	# a full drain is GHOST_DELAY + 1/GHOST_SPEED ~= 2.2s, so give it 150 frames
+	if _phase_frame >= 150:
+		_ok("the damage ghost drains down to the fill",
+				hud._hp_ghost.size.x <= hud._hp_fill.size.x + 0.01,
+				"ghost=%.1f fill=%.1f" % [hud._hp_ghost.size.x, hud._hp_fill.size.x])
+		# hand the bars back to the player's real values (the signals are already
+		# connected — reconnecting them here would just error)
+		hud.set_health(_player.health, Player.HEALTH_MAX)
+		hud.set_stamina(_player.stamina, Player.STAMINA_MAX)
+		_next()
 
 
 func _phase_damage_and_death() -> void:

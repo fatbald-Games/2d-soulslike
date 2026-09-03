@@ -588,6 +588,370 @@ def soft_light(size=256):
     return img
 
 
+# =================================================================== UI =======
+# Bone-and-iron interface art: a 5x7 pixel font, skull ornaments, carved bar
+# frames and the crypt backdrop the menus sit in.
+#
+# The font is drawn in pure WHITE so the engine can tint one sheet into every
+# shade the UI needs — ivory for labels, ember red for "YOU DIED", sickly green
+# for stamina — instead of baking a sheet per colour.
+
+UI_OUT = os.path.join(ROOT, "assets", "ui")
+os.makedirs(UI_OUT, exist_ok=True)
+
+# Keep this string in sync with PixelLabel.CHARS on the Godot side: the engine
+# looks a glyph up purely by its index in here.
+FONT_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,:!?'-()/ "
+GLYPH_W, GLYPH_H = 5, 7
+CELL_W, CELL_H = 6, 8
+
+GLYPHS = {
+    'A': [".###.", "#...#", "#...#", "#####", "#...#", "#...#", "#...#"],
+    'B': ["####.", "#...#", "#...#", "####.", "#...#", "#...#", "####."],
+    'C': [".####", "#....", "#....", "#....", "#....", "#....", ".####"],
+    'D': ["####.", "#...#", "#...#", "#...#", "#...#", "#...#", "####."],
+    'E': ["#####", "#....", "#....", "####.", "#....", "#....", "#####"],
+    'F': ["#####", "#....", "#....", "####.", "#....", "#....", "#...."],
+    'G': [".###.", "#...#", "#....", "#..##", "#...#", "#...#", ".###."],
+    'H': ["#...#", "#...#", "#...#", "#####", "#...#", "#...#", "#...#"],
+    'I': ["#####", "..#..", "..#..", "..#..", "..#..", "..#..", "#####"],
+    'J': ["..###", "...#.", "...#.", "...#.", "...#.", "#..#.", ".##.."],
+    'K': ["#...#", "#..#.", "#.#..", "##...", "#.#..", "#..#.", "#...#"],
+    'L': ["#....", "#....", "#....", "#....", "#....", "#....", "#####"],
+    'M': ["#...#", "##.##", "#.#.#", "#.#.#", "#...#", "#...#", "#...#"],
+    'N': ["#...#", "##..#", "#.#.#", "#.#.#", "#..##", "#...#", "#...#"],
+    'O': [".###.", "#...#", "#...#", "#...#", "#...#", "#...#", ".###."],
+    'P': ["####.", "#...#", "#...#", "####.", "#....", "#....", "#...."],
+    'Q': [".###.", "#...#", "#...#", "#...#", "#.#.#", "#..#.", ".##.#"],
+    'R': ["####.", "#...#", "#...#", "####.", "#.#..", "#..#.", "#...#"],
+    'S': [".####", "#....", "#....", ".###.", "....#", "....#", "####."],
+    'T': ["#####", "..#..", "..#..", "..#..", "..#..", "..#..", "..#.."],
+    'U': ["#...#", "#...#", "#...#", "#...#", "#...#", "#...#", ".###."],
+    'V': ["#...#", "#...#", "#...#", "#...#", "#...#", ".#.#.", "..#.."],
+    'W': ["#...#", "#...#", "#...#", "#.#.#", "#.#.#", "##.##", "#...#"],
+    'X': ["#...#", "#...#", ".#.#.", "..#..", ".#.#.", "#...#", "#...#"],
+    'Y': ["#...#", "#...#", ".#.#.", "..#..", "..#..", "..#..", "..#.."],
+    'Z': ["#####", "....#", "...#.", "..#..", ".#...", "#....", "#####"],
+    '0': [".###.", "#...#", "#..##", "#.#.#", "##..#", "#...#", ".###."],
+    '1': ["..#..", ".##..", "..#..", "..#..", "..#..", "..#..", ".###."],
+    '2': [".###.", "#...#", "....#", "...#.", "..#..", ".#...", "#####"],
+    '3': ["####.", "....#", "....#", ".###.", "....#", "....#", "####."],
+    '4': ["...#.", "..##.", ".#.#.", "#..#.", "#####", "...#.", "...#."],
+    '5': ["#####", "#....", "####.", "....#", "....#", "#...#", ".###."],
+    '6': ["..##.", ".#...", "#....", "####.", "#...#", "#...#", ".###."],
+    '7': ["#####", "....#", "...#.", "..#..", ".#...", ".#...", ".#..."],
+    '8': [".###.", "#...#", "#...#", ".###.", "#...#", "#...#", ".###."],
+    '9': [".###.", "#...#", "#...#", ".####", "....#", "...#.", ".##.."],
+    '.': [".....", ".....", ".....", ".....", ".....", ".##..", ".##.."],
+    ',': [".....", ".....", ".....", ".....", ".##..", ".##..", ".#..."],
+    ':': [".....", ".##..", ".##..", ".....", ".##..", ".##..", "....."],
+    '!': ["..#..", "..#..", "..#..", "..#..", "..#..", ".....", "..#.."],
+    '?': [".###.", "#...#", "....#", "..##.", "..#..", ".....", "..#.."],
+    "'": ["..#..", "..#..", ".....", ".....", ".....", ".....", "....."],
+    '-': [".....", ".....", ".....", "####.", ".....", ".....", "....."],
+    '(': ["...#.", "..#..", ".#...", ".#...", ".#...", "..#..", "...#."],
+    ')': [".#...", "..#..", "...#.", "...#.", "...#.", "..#..", ".#..."],
+    '/': ["....#", "....#", "...#.", "..#..", ".#...", "#....", "#...."],
+    ' ': [".....", ".....", ".....", ".....", ".....", ".....", "....."],
+}
+
+# Menu layout, shared by the backdrop, the mock-up and MainMenu.gd. The
+# backdrop bakes the skull at SKULL_TOP, so the engine must place its text at
+# these same coordinates or the composition falls apart.
+TITLE_Y = 24
+SUB_Y = 58
+MENU_Y0 = 78
+MENU_STEP = 18
+SKULL_TOP = 130
+
+# --- bone palette -------------------------------------------------------------
+UIPAL = {
+    '.': T,
+    'o': (12, 11, 16, 255),      # carved outline
+    'n': (92, 87, 75, 255),      # bone shadow
+    'I': (168, 160, 140, 255),   # bone mid (ivory)
+    'W': (222, 215, 194, 255),   # bone highlight
+    'e': (16, 14, 19, 255),      # empty socket
+    'Z': (236, 88, 58, 255),     # socket ember — a skull that is watching you
+}
+
+SKULL = [
+    "...ooooo...",
+    "..oWWIIIo..",
+    ".oWIIIIIIo.",
+    ".oIeeIeeIo.",
+    ".oIeeIeeIo.",
+    ".oIIIIIIIo.",
+    "..oIIIIIo..",
+    "..oInInIo..",
+    "...ooooo...",
+]
+
+BONE_LONG = [
+    ".oo.....oo.",
+    "oWIo...oIIo",
+    ".oIIIIIIIo.",
+    "oWIo...oIIo",
+    ".oo.....oo.",
+]
+
+BONE_SHORT = [
+    ".oo..oo.",
+    "oWIooIIo",
+    ".oIIIIo.",
+    "oWIooIIo",
+    ".oo..oo.",
+]
+
+
+def _swap(rows, a, b):
+    return [r.replace(a, b) for r in rows]
+
+
+def font_sheet():
+    """All glyphs in one horizontal strip, pure white, one 6x8 cell each."""
+    img = Image.new("RGBA", (CELL_W * len(FONT_CHARS), CELL_H), T)
+    px = img.load()
+    for i, ch in enumerate(FONT_CHARS):
+        for y, row in enumerate(GLYPHS[ch]):
+            for x, c in enumerate(row):
+                if c == '#':
+                    px[i * CELL_W + x, y] = (255, 255, 255, 255)
+    return img
+
+
+def skull_frames():
+    """[dim, ember-eyed] — the menu cursor lights up on the selected entry."""
+    return [grid_to_img(SKULL, UIPAL),
+            grid_to_img(_swap(SKULL, 'e', 'Z'), UIPAL)]
+
+
+def bone_bar_frame(w, h, cap=5):
+    """A bone trough: knobbed caps at both ends, dark channel for the fill.
+
+    The channel is inset by `cap` horizontally and 2px vertically; the engine
+    draws the fill there (see HUD.channel_rect)."""
+    img = Image.new("RGBA", (w, h), T)
+    px = img.load()
+    OUTL = UIPAL['o']
+    for y in range(h):
+        for x in range(w):
+            in_cap = x < cap or x >= w - cap
+            if x == 0 or y == 0 or x == w - 1 or y == h - 1:
+                px[x, y] = OUTL
+            elif in_cap:
+                # rounded-off bone knob: shade top-lit, bottom-shadowed
+                px[x, y] = UIPAL['W'] if y <= h // 3 else (
+                    UIPAL['n'] if y >= h - 1 - h // 3 else UIPAL['I'])
+            elif y == 1:
+                px[x, y] = UIPAL['n']
+            elif y == h - 2:
+                px[x, y] = UIPAL['n']
+            else:
+                px[x, y] = (18, 16, 22, 255)      # empty channel
+    # nick the very corners so the caps read as rounded, not as bricks
+    for (cx, cy) in ((0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1)):
+        px[cx, cy] = T
+    return img
+
+
+def _put(img, x, y, col):
+    if 0 <= x < img.width and 0 <= y < img.height:
+        img.putpixel((x, y), col)
+
+
+def _darken(img, f):
+    px = img.load()
+    for y in range(img.height):
+        for x in range(img.width):
+            r, g, b, a = px[x, y]
+            px[x, y] = (int(r * f), int(g * f), int(b * f), a)
+    return img
+
+
+def draw_text(img, text, x, y, scale=1, col=(222, 215, 194, 255), tracking=1):
+    """Blit a string with the pixel font. Mirrors PixelLabel._draw() in Godot."""
+    cx = x
+    for ch in text.upper():
+        rows = GLYPHS.get(ch, GLYPHS[' '])
+        for gy, row in enumerate(rows):
+            for gx, c in enumerate(row):
+                if c != '#':
+                    continue
+                for sy in range(scale):
+                    for sx in range(scale):
+                        _put(img, cx + gx * scale + sx, y + gy * scale + sy, col)
+        cx += (GLYPH_W + tracking) * scale
+    return cx
+
+
+def text_width(text, scale=1, tracking=1):
+    n = len(text)
+    if n == 0:
+        return 0
+    return n * (GLYPH_W + tracking) * scale - tracking * scale
+
+
+def big_skull(w=112, h=104):
+    """A large skull drawn at native resolution — cranium, sockets, nasal
+    cavity and a toothed jaw. Scaling the 11px icon up just gives mush, so the
+    looming one behind the title gets its own geometry."""
+    img = Image.new("RGBA", (w, h), T)
+    px = img.load()
+    BONE = (150, 143, 126, 255)
+    SHADE = (108, 102, 89, 255)
+    DARK = (10, 9, 13, 255)
+    cx = w / 2.0
+
+    def ell(x, y, ex, ey, rx, ry):
+        return ((x - ex) / rx) ** 2 + ((y - ey) / ry) ** 2 <= 1.0
+
+    cranium_y, cranium_rx, cranium_ry = h * 0.36, w * 0.43, h * 0.33
+    jaw_y, jaw_rx, jaw_ry = h * 0.70, w * 0.27, h * 0.20
+    cheek_y, cheek_rx, cheek_ry = h * 0.56, w * 0.36, h * 0.16
+
+    for y in range(h):
+        for x in range(w):
+            if (ell(x, y, cx, cranium_y, cranium_rx, cranium_ry)
+                    or ell(x, y, cx, jaw_y, jaw_rx, jaw_ry)
+                    or ell(x, y, cx, cheek_y, cheek_rx, cheek_ry)):
+                # light falls from above: shade the lower half
+                px[x, y] = BONE if y < h * 0.55 else SHADE
+
+    # eye sockets — deep and slightly angled inward, which reads as menacing
+    for sgn in (-1, 1):
+        ex = cx + sgn * w * 0.185
+        for y in range(h):
+            for x in range(w):
+                if ell(x, y, ex, h * 0.42, w * 0.135, h * 0.115):
+                    px[x, y] = DARK
+    # nasal cavity: an inverted triangle
+    for y in range(int(h * 0.48), int(h * 0.62)):
+        t = (y - h * 0.48) / (h * 0.62 - h * 0.48)
+        half = max(1, int(w * 0.055 * (1.0 - t) + w * 0.012))
+        for x in range(int(cx - half), int(cx + half) + 1):
+            if 0 <= x < w:
+                px[x, y] = DARK
+    # teeth: vertical gaps across the jaw
+    for y in range(int(h * 0.63), int(h * 0.80)):
+        for x in range(w):
+            if px[x, y][3] and (x - int(cx)) % 7 == 0:
+                px[x, y] = DARK
+    # a dark seam under the cheekbones separates skull from jaw
+    for x in range(w):
+        y = int(h * 0.63)
+        if px[x, y][3]:
+            px[x, y] = DARK
+    return img
+
+
+def menu_backdrop(wall, floor, w=384, h=216):
+    """The crypt the menu sits in: dim stonework, a bone pile, a skull looming
+    out of the dark, and a heavy vignette so the title reads."""
+    img = Image.new("RGBA", (w, h), (10, 9, 14, 255))
+    dim_wall = _darken(wall.copy(), 0.62)
+    dim_floor = _darken(floor.copy(), 0.55)
+    floor_y = h - 46
+    for cy in range(0, h, 16):
+        for cx in range(0, w, 16):
+            img.alpha_composite(dim_wall if cy < floor_y else dim_floor, (cx, cy))
+
+    # A huge skull rising out of the heap at the bottom — placed BELOW the menu
+    # entries so its sockets and teeth stay readable instead of hiding behind
+    # letters, and drawn before the pile so the bones bury its jaw.
+    big = _darken(big_skull(), 0.48)
+    img.alpha_composite(big, ((w - big.width) // 2, SKULL_TOP))
+
+    # bone heap along the bottom: larger overlapping pieces, densest at the
+    # floor line, thinning upward so it reads as a pile and not as confetti
+    rng = random.Random(20240)
+    long_b = grid_to_img(BONE_LONG, UIPAL)
+    short_b = grid_to_img(BONE_SHORT, UIPAL)
+    skull = skull_frames()[0]
+    for _ in range(130):
+        depth = rng.random() ** 1.7          # 0 = front/low, 1 = back/high
+        by = h - 7 - int(depth * 26)
+        bx = rng.randint(-8, w - 2)
+        piece = rng.choice([long_b, long_b, long_b, short_b, short_b, skull])
+        if rng.random() < 0.35:
+            piece = piece.transpose(Image.FLIP_LEFT_RIGHT)
+        lit = 1.0 - depth * 0.5 + rng.uniform(-0.07, 0.07)
+        img.alpha_composite(_darken(piece.copy(), max(0.3, min(1.0, lit))), (bx, by))
+
+    # vignette: push the corners into the dark
+    px = img.load()
+    cxf, cyf = w / 2.0, h / 2.0
+    for y in range(h):
+        for x in range(w):
+            d = (((x - cxf) / cxf) ** 2 + ((y - cyf) / cyf) ** 2) ** 0.5
+            f = max(0.0, 1.0 - 0.72 * max(0.0, d - 0.28) ** 1.5)
+            r, g, b, a = px[x, y]
+            px[x, y] = (int(r * f), int(g * f), int(b * f), a)
+    return img
+
+
+def save_ui(img, name):
+    img.save(os.path.join(UI_OUT, name))
+    print("  wrote ui/%s" % name, img.size)
+
+
+def build_ui_preview(backdrop, hp_frame, sp_frame, skulls, game_tile):
+    """A mock-up of the menu and the in-game HUD so the look can be judged
+    without opening the engine."""
+    w, h = 384, 216
+    shot = backdrop.copy()
+
+    # --- title, with an ember-red drop shadow ---
+    title = "ASHEN HOLLOW"
+    tw = text_width(title, 4)
+    tx = (w - tw) // 2
+    draw_text(shot, title, tx + 2, TITLE_Y + 2, 4, (104, 22, 16, 255))
+    draw_text(shot, title, tx, TITLE_Y, 4, (226, 219, 199, 255))
+    sub = "THE ASH REMEMBERS"
+    draw_text(shot, sub, (w - text_width(sub, 1)) // 2, SUB_Y, 1, (128, 116, 104, 255))
+
+    # --- menu entries, first one selected ---
+    items = ["NEW GAME", "CONTROLS", "QUIT"]
+    for i, it in enumerate(items):
+        y = MENU_Y0 + i * MENU_STEP
+        sel = (i == 0)
+        col = (236, 226, 202, 255) if sel else (122, 112, 100, 255)
+        iw = text_width(it, 2)
+        ix = (w - iw) // 2
+        draw_text(shot, it, ix, y, 2, col)
+        if sel:
+            shot.alpha_composite(skulls[1], (ix - 18, y + 2))
+
+    # --- second panel: the in-game HUD over a lit dungeon strip ---
+    panel_h = 64
+    out = Image.new("RGBA", (w, h + panel_h), (8, 7, 11, 255))
+    out.alpha_composite(shot, (0, 0))
+    panel = Image.new("RGBA", (w, panel_h), (16, 15, 21, 255))
+    for cy in range(0, panel_h, 16):
+        for cx in range(0, w, 16):
+            panel.alpha_composite(_darken(game_tile.copy(), 0.8), (cx, cy))
+    out.alpha_composite(panel, (0, h))
+
+    ox, oy = 8, h + 8
+    out.alpha_composite(hp_frame, (ox, oy))
+    out.alpha_composite(sp_frame, (ox, oy + hp_frame.height + 3))
+    px = out.load()
+    for y in range(2, hp_frame.height - 2):
+        for x in range(5, hp_frame.width - 5):
+            if x < 5 + int((hp_frame.width - 10) * 0.72):
+                px[ox + x, oy + y] = (150, 26, 24, 255) if y > 3 else (196, 44, 36, 255)
+    sy = oy + hp_frame.height + 3
+    for y in range(2, sp_frame.height - 2):
+        for x in range(4, sp_frame.width - 4):
+            if x < 4 + int((sp_frame.width - 8) * 0.55):
+                px[ox + x, sy + y] = (108, 126, 70, 255) if y > 3 else (140, 158, 92, 255)
+    out.alpha_composite(skulls[0], (ox, sy + sp_frame.height + 4))
+    draw_text(out, "1240", ox + 14, sy + sp_frame.height + 7, 1, (208, 196, 150, 255))
+    draw_text(out, "IN-GAME HUD", w - text_width("IN-GAME HUD", 1) - 8,
+              h + panel_h - 12, 1, (90, 84, 76, 255))
+    return out
+
+
 # ================================================================ SAVE ========
 def save(img, name, scale=1):
     if scale != 1:
@@ -826,6 +1190,22 @@ def main():
     preview.resize((preview.width * 5, preview.height * 5), Image.NEAREST).save(
         os.path.join(tools_dir, "preview.png"))
     print("  wrote tools/preview.png", preview.size, "(x5)")
+
+    # --- bone-themed interface art ---
+    save_ui(font_sheet(), "font_5x7.png")
+    skulls = skull_frames()
+    save_ui(hsheet(skulls), "skull.png")
+    hp_frame = bone_bar_frame(112, 13, cap=5)
+    sp_frame = bone_bar_frame(96, 11, cap=4)
+    save_ui(hp_frame, "bar_frame_hp.png")
+    save_ui(sp_frame, "bar_frame_sp.png")
+    backdrop = menu_backdrop(wall, floor)
+    save_ui(backdrop, "menu_bg.png")
+
+    ui_shot = build_ui_preview(backdrop, hp_frame, sp_frame, skulls, floor)
+    ui_shot.resize((ui_shot.width * 3, ui_shot.height * 3), Image.NEAREST).save(
+        os.path.join(tools_dir, "ui_preview.png"))
+    print("  wrote tools/ui_preview.png", ui_shot.size, "(x3)")
 
     build_mood_gif(pf, bf, torch_frames(), floor, wall)
     print("Done.")

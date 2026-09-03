@@ -4,9 +4,9 @@
 #   tools/run_tests.sh
 #   GODOT=/pfad/zu/godot tools/run_tests.sh
 #
-# Importiert die Assets und spielt danach den Kampf-Slice ohne Fenster durch.
-# Exit-Code 0 = alle Checks bestanden, sonst 1 (damit als CI-Gate nutzbar).
-set -euo pipefail
+# Importiert die Assets und spielt danach Kampf-Slice und Menüs ohne Fenster
+# durch. Exit-Code 0 = alles bestanden, sonst 1 (damit als CI-Gate nutzbar).
+set -uo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
@@ -29,6 +29,37 @@ fi
 echo "Godot: $("$GODOT_BIN" --version)"
 
 # Erster Lauf legt die .import-Dateien an; ohne sie findet der Test keine Texturen.
-"$GODOT_BIN" --headless --import --path "$PROJECT_DIR" >/dev/null
+"$GODOT_BIN" --headless --import --path "$PROJECT_DIR" >/dev/null 2>&1
 
-"$GODOT_BIN" --headless --path "$PROJECT_DIR" --script res://tools/smoke_test.gd
+status=0
+
+# Ein Testskript laufen lassen. Godot liefert bei einem Laufzeitfehler im Skript
+# trotzdem Exit-Code 0, deshalb gilt jede SCRIPT-ERROR-Zeile ebenfalls als
+# Fehlschlag — genau so sind sonst Parse-Fehler in den Menüs durchgerutscht.
+run_suite() {
+	local name="$1" script="$2" out
+	echo
+	echo "=== $name ==="
+	out="$("$GODOT_BIN" --headless --path "$PROJECT_DIR" --script "$script" 2>&1)"
+	local rc=$?
+	echo "$out" | grep -v '^Godot Engine'
+	if [[ $rc -ne 0 ]]; then
+		echo "-> $name: Checks fehlgeschlagen (Exit $rc)" >&2
+		status=1
+	fi
+	if echo "$out" | grep -qE 'SCRIPT ERROR|^ERROR:'; then
+		echo "-> $name: Engine-Fehler im Log (siehe SCRIPT ERROR oben)" >&2
+		status=1
+	fi
+}
+
+run_suite "Kampf-Slice" "res://tools/smoke_test.gd"
+run_suite "Menüs" "res://tools/menu_test.gd"
+
+echo
+if [[ $status -eq 0 ]]; then
+	echo "ALLES GRÜN"
+else
+	echo "FEHLGESCHLAGEN" >&2
+fi
+exit $status

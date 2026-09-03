@@ -7,7 +7,7 @@ config_version=5
 
 config/name="Ashen Hollow"
 config/description="A 2D soulslike in dark pixel art. Art-first vertical slice."
-run/main_scene="res://scenes/Main.tscn"
+run/main_scene="res://scenes/MainMenu.tscn"
 config/features=PackedStringArray("4.3", "GL Compatibility")
 config/icon="res://icon.svg"
 

@@ -17,6 +17,7 @@ var world_h := float(ROWS * TW)
 var _lights: Array = []
 var _t := 0.0
 var hud                     # HUD.gd instance (untyped: it has no class_name)
+var pause_menu              # PauseMenu.gd instance
 var player: Player
 
 
@@ -27,6 +28,7 @@ func _ready() -> void:
 	_build_props()
 	_build_lighting()
 	hud = _build_hud()
+	pause_menu = _build_pause_menu()
 	player = _spawn_player(Vector2(72, floor_top))
 	_spawn_hollow(Vector2(430, floor_top))
 	_spawn_hollow(Vector2(760, floor_top))
@@ -212,6 +214,17 @@ func _build_hud() -> CanvasLayer:
 	var h: CanvasLayer = load("res://scripts/HUD.gd").new()
 	add_child(h)
 	return h
+
+
+func _build_pause_menu() -> CanvasLayer:
+	var p: CanvasLayer = load("res://scripts/PauseMenu.gd").new()
+	add_child(p)
+	p.quit_to_menu.connect(_on_quit_to_menu)
+	return p
+
+
+func _on_quit_to_menu() -> void:
+	get_tree().change_scene_to_file("res://scenes/MainMenu.tscn")
 
 
 func _wire_hud() -> void:

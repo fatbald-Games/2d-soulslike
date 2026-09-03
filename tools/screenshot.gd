@@ -1,0 +1,86 @@
+extends SceneTree
+## Captures real in-engine screenshots into tools/shots/.
+##
+##   xvfb-run -a godot --path . --script res://tools/screenshot.gd
+##
+## Needs an actual display (headless draws nothing), so it runs under Xvfb in
+## CI. Walks the same path a player takes and grabs a frame at each stop, which
+## is the only way to confirm the UI really looks the way it was designed
+## instead of the way the Python mock-up predicted.
+
+const DIR := "res://tools/shots/"
+
+var _f := 0
+var _scene: Node
+
+
+func _initialize() -> void:
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(DIR))
+	_scene = load("res://scenes/MainMenu.tscn").instantiate()
+	root.add_child(_scene)
+	current_scene = _scene
+	print("— capturing screenshots —")
+
+
+func _key(code: int) -> void:
+	var down := InputEventKey.new()
+	down.physical_keycode = code
+	down.pressed = true
+	Input.parse_input_event(down)
+	var up := InputEventKey.new()
+	up.physical_keycode = code
+	up.pressed = false
+	Input.parse_input_event(up)
+
+
+func _grab(name: String) -> void:
+	var img := root.get_texture().get_image()
+	var path := DIR + name + ".png"
+	var err := img.save_png(path)
+	print("  %s  %s  %s" % ["ok " if err == OK else "FAIL", name, img.get_size()])
+
+
+func _find(node: Node, script_name: String) -> Node:
+	var s: Script = node.get_script()
+	if s != null and s.resource_path.get_file() == script_name + ".gd":
+		return node
+	for c in node.get_children():
+		var hit := _find(c, script_name)
+		if hit != null:
+			return hit
+	return null
+
+
+func _process(_delta: float) -> bool:
+	_f += 1
+	match _f:
+		45:
+			_grab("01_title")
+		48:
+			(_find(_scene, "MenuList") as MenuList).index = 1     # CONTROLS
+			_key(KEY_ENTER)
+		56:
+			_grab("02_controls")
+		58:
+			_key(KEY_ESCAPE)
+		62:
+			(_find(_scene, "MenuList") as MenuList).index = 0     # NEW GAME
+			_key(KEY_ENTER)
+		110:
+			# take a couple of hits first, so the health bar and its ghost show
+			current_scene.player.take_damage(34.0, Vector2(400, 0))
+			current_scene.player.add_souls(1240)
+		114:
+			current_scene.player.stamina = 46.0
+			current_scene.player.stamina_changed.emit(46.0, 100.0)
+		120:
+			_grab("03_hud")
+		124:
+			_key(KEY_ESCAPE)
+		132:
+			_grab("04_pause")
+		136:
+			print("done.")
+			quit(0)
+			return true
+	return false
