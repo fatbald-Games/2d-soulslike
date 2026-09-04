@@ -12,7 +12,8 @@ signal hit_landed(at: Vector2)
 signal died
 
 # --- tuning ------------------------------------------------------------------
-const SPEED := 78.0
+const SPEED_BASE := 78.0
+const SPEED_PER_AGILITY := 4.0
 const GRAVITY := 900.0
 # Apex is v^2/2g = 40.5px, a hair over two 16px tiles. The level generator
 # builds every step against exactly this number (see REACH_AT_RISE in
@@ -30,13 +31,20 @@ const ROLL_TIME := 0.42
 const ROLL_IFRAME_FROM := 0.07     # i-frames start
 const ROLL_IFRAME_TO := 0.30       # i-frames end  -> ~55% of the roll is safe
 
-const ATTACK_TIME := 0.36
-const ATTACK_HIT_AT := 0.15        # the strike frame
+const ATTACK_TIME_BASE := 0.36
+const ATTACK_TIME_PER_FINESSE := 0.011   # 10 points takes a swing to 0.25s
+const ATTACK_HIT_FRACTION := 0.42        # where in the swing the blow lands
 const ATTACK_REACH := 30.0
-const ATTACK_DAMAGE := 34.0
 
-const HEALTH_MAX := 100.0
-const STAMINA_MAX := 100.0
+# Bases, before anything is spent at a bonfire. The three stats in Run.gd move
+# these, and each one shows on the HUD immediately: VIGOR and ENDURANCE make
+# their bars physically longer, STRENGTH lands harder.
+const HEALTH_BASE := 100.0
+const HEALTH_PER_VIGOR := 12.0
+const STAMINA_BASE := 100.0
+const STAMINA_PER_ENDURANCE := 10.0
+const ATTACK_BASE := 34.0
+const ATTACK_PER_STRENGTH := 5.0
 const STAMINA_REGEN := 38.0
 const STAMINA_REGEN_DELAY := 0.45
 const ATTACK_COST := 28.0
@@ -57,8 +65,14 @@ enum State { IDLE, RUN, ATTACK, ROLL, HURT, DEAD, CLIMB, DRINK }
 
 var state: State = State.IDLE
 var facing := 1                    # +1 right, -1 left
-var health := HEALTH_MAX
-var stamina := STAMINA_MAX
+var health_max := HEALTH_BASE
+var stamina_max := STAMINA_BASE
+var attack_damage := ATTACK_BASE
+var speed := SPEED_BASE
+var attack_time := ATTACK_TIME_BASE
+
+var health := HEALTH_BASE
+var stamina := STAMINA_BASE
 var souls := 0
 var flask := FLASK_MAX
 
@@ -73,12 +87,33 @@ var _level: Node = null            # asked whether a ladder is under him
 @onready var sprite: AnimatedSprite2D = $Sprite
 
 
+## Reads the three stats out of Run and turns them into the numbers that matter.
+## Called on spawn and again the moment a level is bought.
+func apply_stats(top_up: bool = false) -> void:
+	health_max = HEALTH_BASE + Run.stats[Run.VIGOR] * HEALTH_PER_VIGOR
+	stamina_max = STAMINA_BASE + Run.stats[Run.ENDURANCE] * STAMINA_PER_ENDURANCE
+	speed = SPEED_BASE + Run.stats[Run.AGILITY] * SPEED_PER_AGILITY
+	attack_damage = ATTACK_BASE + Run.stats[Run.STRENGTH] * ATTACK_PER_STRENGTH
+	attack_time = ATTACK_TIME_BASE - Run.stats[Run.FINESSE] * ATTACK_TIME_PER_FINESSE
+	if top_up:
+		health = health_max
+		stamina = stamina_max
+	else:
+		health = minf(health, health_max)
+		stamina = minf(stamina, stamina_max)
+	health_changed.emit(health, health_max)
+	stamina_changed.emit(stamina, stamina_max)
+
+
 func _ready() -> void:
 	add_to_group("player")
+	# top_up: a freshly spawned knight starts at his FULL maximum. Without this
+	# he respawns on the base 100 while VIGOR has already raised the cap.
+	apply_stats(true)
 	_level = get_tree().get_first_node_in_group("level")
 	sprite.play("idle")
-	health_changed.emit(health, HEALTH_MAX)
-	stamina_changed.emit(stamina, STAMINA_MAX)
+	health_changed.emit(health, health_max)
+	stamina_changed.emit(stamina, stamina_max)
 	souls_changed.emit(souls)
 	flask_changed.emit(flask, FLASK_MAX)
 
@@ -161,7 +196,7 @@ func _ground_state(delta: float) -> void:
 	var dir := Input.get_axis("left", "right")
 	if dir != 0.0:
 		facing = 1 if dir > 0.0 else -1
-		velocity.x = dir * SPEED
+		velocity.x = dir * speed
 		_set_state_anim(State.RUN)
 	else:
 		_decelerate(delta, 700.0)
@@ -186,8 +221,8 @@ func _drink_state(delta: float) -> void:
 	if not _drank and _t >= DRINK_HEAL_AT:
 		_drank = true
 		flask -= 1
-		health = minf(HEALTH_MAX, health + FLASK_HEAL)
-		health_changed.emit(health, HEALTH_MAX)
+		health = minf(health_max, health + FLASK_HEAL)
+		health_changed.emit(health, health_max)
 		flask_changed.emit(flask, FLASK_MAX)
 	if _t >= DRINK_TIME:
 		_enter(State.IDLE)
@@ -195,11 +230,11 @@ func _drink_state(delta: float) -> void:
 
 ## Sitting at a bonfire: full health, full flask.
 func rest() -> void:
-	health = HEALTH_MAX
-	stamina = STAMINA_MAX
+	health = health_max
+	stamina = stamina_max
 	flask = FLASK_MAX
-	health_changed.emit(health, HEALTH_MAX)
-	stamina_changed.emit(stamina, STAMINA_MAX)
+	health_changed.emit(health, health_max)
+	stamina_changed.emit(stamina, stamina_max)
 	flask_changed.emit(flask, FLASK_MAX)
 
 
@@ -208,7 +243,7 @@ func _climb_state(_delta: float) -> void:
 	var dir := Input.get_axis("left", "right")
 	if dir != 0.0:
 		facing = 1 if dir > 0.0 else -1
-		velocity.x = dir * SPEED
+		velocity.x = dir * speed
 		_enter(State.IDLE)
 		return
 	if not _on_ladder():
@@ -228,10 +263,10 @@ func _climb_state(_delta: float) -> void:
 
 func _attack_state(delta: float) -> void:
 	_decelerate(delta, 500.0)
-	if not _hit_done and _t >= ATTACK_HIT_AT:
+	if not _hit_done and _t >= attack_time * ATTACK_HIT_FRACTION:
 		_hit_done = true
 		_swing()
-	if _t >= ATTACK_TIME:
+	if _t >= attack_time:
 		_enter(State.IDLE)
 
 
@@ -254,6 +289,10 @@ func _enter(next: State) -> void:
 			sprite.play("run")
 		State.ATTACK:
 			sprite.play("attack")
+			# the swing sheet is authored at ATTACK_TIME_BASE, so a faster swing
+			# has to play back proportionally faster or the blow lands after the
+			# animation has already finished
+			sprite.speed_scale = ATTACK_TIME_BASE / attack_time
 		State.ROLL:
 			sprite.play("roll")
 		State.CLIMB:
@@ -284,7 +323,7 @@ func _swing() -> void:
 			continue
 		if box.has_point(e.global_position + Vector2(0, -12)):
 			if e.has_method("take_damage"):
-				e.take_damage(ATTACK_DAMAGE, global_position)
+				e.take_damage(attack_damage, global_position)
 
 
 func _hit_rect(reach: float, height: float) -> Rect2:
@@ -296,7 +335,7 @@ func take_damage(amount: float, from: Vector2) -> void:
 	if state == State.DEAD or is_invulnerable():
 		return
 	health = maxf(0.0, health - amount)
-	health_changed.emit(health, HEALTH_MAX)
+	health_changed.emit(health, health_max)
 	_invuln = INVULN_AFTER_HIT
 	var away := 1.0 if global_position.x >= from.x else -1.0
 	velocity.x = away * 110.0
@@ -319,7 +358,7 @@ func _spend(cost: float) -> bool:
 		return false
 	stamina -= cost
 	_regen_block = STAMINA_REGEN_DELAY
-	stamina_changed.emit(stamina, STAMINA_MAX)
+	stamina_changed.emit(stamina, stamina_max)
 	return true
 
 
@@ -329,9 +368,9 @@ func _tick_stamina(delta: float) -> void:
 	if _regen_block > 0.0:
 		_regen_block -= delta
 		return
-	if stamina < STAMINA_MAX:
-		stamina = minf(STAMINA_MAX, stamina + STAMINA_REGEN * delta)
-		stamina_changed.emit(stamina, STAMINA_MAX)
+	if stamina < stamina_max:
+		stamina = minf(stamina_max, stamina + STAMINA_REGEN * delta)
+		stamina_changed.emit(stamina, stamina_max)
 
 
 func _decelerate(delta: float, rate: float) -> void:

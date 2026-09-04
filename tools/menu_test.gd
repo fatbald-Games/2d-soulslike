@@ -101,6 +101,11 @@ func _phase_boot() -> void:
 			"got %d of %d" % [_list._labels.size(), _menu_scene.ITEMS.size()])
 	_ok("the title screen offers an options entry",
 			_menu_scene.ITEMS.has("OPTIONS"))
+	# read the constant off the script itself — instantiating a CanvasLayer here
+	# and never freeing it leaks a node, which the runner reports at exit
+	var pause_script: GDScript = load("res://scripts/PauseMenu.gd")
+	var pause_items: Array = pause_script.get_script_constant_map()["ITEMS"]
+	_ok("the pause menu offers a progress page", pause_items.has("PROGRESS"))
 	_ok("first entry starts selected", _list.index == 0)
 	_ok("a cursor skull is present", _list._cursor != null)
 	_ok("the backdrop art loaded", UiTheme.tex("menu_bg.png") != null)
@@ -258,7 +263,9 @@ func _phase_quit_to_menu() -> void:
 		0:
 			_key(KEY_ESCAPE)
 		2:
-			current_scene.pause_menu._menu.index = 3      # QUIT TO TITLE
+			# last entry, so adding a page to the pause menu cannot stale this
+			var pm = current_scene.pause_menu
+			pm._menu.index = pm.ITEMS.size() - 1          # QUIT TO TITLE
 			_key(KEY_ENTER)
 	if _phase_frame < 14:
 		return

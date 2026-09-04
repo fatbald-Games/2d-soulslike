@@ -26,7 +26,7 @@ mit i-Frames, Ausdauer-Haushalt und ein Gegner mit telegrafiertem Angriff.
 | `J` oder linke Maustaste | Angriff |
 | `K` oder `Shift` | **Ausweichrolle** |
 | `Q` | **Flakon trinken** (heilt, macht dich kurz wehrlos) |
-| `E` | **Am Lagerfeuer rasten** |
+| `E` | **Lagerfeuer** entzünden / rasten / aufleveln |
 | `W` `S` (oder ↑/↓) | **Leiter hoch/runter** |
 | `S` + `Leertaste` | durch einen Holzbalken **nach unten durchfallen** |
 | `Esc` | Pause-Menü |
@@ -125,6 +125,36 @@ Die Physik-Konstanten stehen deshalb an **zwei** Stellen im Gleichklang:
 `JUMP_VELOCITY` in `Player.gd` und `REACH_AT_RISE` in `gen_level.py`. Wer den
 Sprung ändert, muss den Level neu erzeugen — sonst strandet der Ritter unter
 Absätzen, die er vorher erreicht hat.
+
+## Sichtbarer Fortschritt
+
+Seelen, die man nur sammelt, sind eine Punktzahl. Damit sich der Weg dauerhaft
+nach Vorankommen anfühlt, hängt jetzt alles daran:
+
+- **Aufleveln am Lagerfeuer** (`E` → LEVEL UP). Fünf Werte, jeder mit seiner
+  Wirkung direkt danebenstehend, damit man nicht raten muss:
+
+  | Wert | Wirkung |
+  |---|---|
+  | VIGOR | Leben (+12 je Punkt) |
+  | ENDURANCE | Ausdauer (+10) |
+  | AGILITY | Laufgeschwindigkeit (+4) |
+  | STRENGTH | Schaden (+5) |
+  | FINESSE | Angriffstempo (−0,011 s pro Schlag) |
+
+  Der Preis steigt mit der Gesamtstufe, damit ein abgefarmtes Lagerfeuer den
+  Durchgang nicht trivialisiert.
+- **Die Leisten werden physisch länger.** VIGOR und ENDURANCE dehnen ihre
+  HUD-Leiste sichtbar nach rechts — deshalb sind die Rahmen NinePatch: die
+  Fang-Enden bleiben scharf, die Platte dazwischen wächst. Eine Zahl, die in
+  einem Menü hochgeht, ist Buchhaltung; eine Leiste, die weiter über den
+  Bildschirm reicht, ist Fortschritt, den man sieht.
+- **Lagerfeuer sind erst kalt.** Ein unentzündetes Feuer sieht man von weitem
+  als toten Haufen; `E` entzündet es mit einem Lichtstoß, und es bleibt für den
+  Rest des Durchgangs an.
+- **Fortschritts-Seite** (`Esc` → PROGRESS): alle fünf Werte, Stufe, entzündete
+  Lagerfeuer, gefundene Bereiche, gelesene Inschriften und erlegte Hollows —
+  jeweils als `x / y`, damit man sieht, wie viel der Feste noch fehlt.
 
 ## Der Kreislauf
 
@@ -239,7 +269,8 @@ ashen-hollow/
 │   ├─ PixelLabel.gd      Zeichnet Text mit der Bitmap-Schrift
 │   ├─ UiTheme.gd         Palette, Menü-Layout, Panel- und Leisten-Geometrie
 │   ├─ Settings.gd        Optionen, gespeichert in user://settings.cfg
-│   ├─ Run.gd             Was einen Szenen-Reload überlebt: Checkpoint + Seelen
+│   ├─ Run.gd             Fortschritt: Werte, Checkpoint, Seelen, Entdecktes
+│   ├─ BonfireMenu.gd     Rasten und Aufleveln am Feuer
 │   ├─ Player.gd          Zustandsautomat, Ausdauer, i-Frames, Angriff
 │   ├─ Hollow.gd          Gegner-KI: verfolgen → ausholen → zustechen → erholen
 │   ├─ HUD.gd             Knochen-Leisten, Schaden-Geist, Seelen, „YOU DIED"

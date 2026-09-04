@@ -510,11 +510,21 @@ def _overlay(base_img, flame_rows, top):
 
 
 def bonfire_frames():
+    """Four burning frames, then a fifth: the cold pile before you light it.
+    An unlit bonfire you can see from across a room is a promise, and lighting
+    it is the clearest progress marker the game has."""
     base = grid_to_img(BONFIRE_BASE)
     flames = [FLAME_A, FLAME_B, FLAME_C, FLAME_B]
-    frames = []
-    for fl in flames:
-        frames.append(_overlay(base, fl, 3))
+    frames = [_overlay(base, fl, 3) for fl in flames]
+    cold = base.copy()
+    px = cold.load()
+    for y in range(cold.height):          # drained of all warmth
+        for x in range(cold.width):
+            r, g, b, a = px[x, y]
+            if a:
+                v = int(r * 0.30 + g * 0.42 + b * 0.28)
+                px[x, y] = (v, v, int(v * 1.15), a)
+    frames.append(cold)
     return frames
 
 

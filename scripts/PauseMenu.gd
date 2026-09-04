@@ -11,16 +11,19 @@ extends CanvasLayer
 signal resumed
 signal quit_to_menu
 
-const ITEMS := ["RESUME", "CONTROLS", "OPTIONS", "QUIT TO TITLE"]
+const ITEMS := ["RESUME", "PROGRESS", "CONTROLS", "OPTIONS", "QUIT TO TITLE"]
 const OPTION_ITEMS := ["WINDOW", "SCREEN SHAKE", "HUD HINTS", "BACK"]
 
-enum Screen { MAIN, CONTROLS, OPTIONS }
+enum Screen { MAIN, PROGRESS, CONTROLS, OPTIONS }
 
 var _screen: Screen = Screen.MAIN
 var _menu: MenuList
 var _options: MenuList
 var _pages: Dictionary = {}
 var _shade: ColorRect
+var _progress_rows: Array = []
+var _progress_origin := Vector2.ZERO
+var _progress_w := 0.0
 var _open := false
 
 
@@ -40,6 +43,7 @@ func _build() -> void:
 	add_child(_shade)
 
 	_pages[Screen.MAIN] = _build_main()
+	_pages[Screen.PROGRESS] = _build_progress()
 	_pages[Screen.CONTROLS] = _build_controls()
 	_pages[Screen.OPTIONS] = _build_options()
 	_show(Screen.MAIN)
@@ -57,9 +61,7 @@ func _page(heading: String, hint: String) -> Control:
 	head.center_on(UiTheme.VIEW.x * 0.5, 28)
 	page.add_child(head)
 
-	var tip := PixelLabel.make(hint, 1, UiTheme.BONE_FAINT)
-	tip.center_on(UiTheme.VIEW.x * 0.5, UiTheme.VIEW.y - 18)
-	page.add_child(tip)
+	UiTheme.add_footer(page, hint)
 	return page
 
 
@@ -74,6 +76,61 @@ func _build_main() -> Control:
 	_menu.build(ITEMS, origin, size.x)
 	_menu.activated.connect(_on_activated)
 	return page
+
+
+## Everything the run has to show for itself, on one page. The stats say what
+## the souls bought; the counters say how much of the keep has actually been
+## seen — the two halves of "am I getting anywhere".
+func _build_progress() -> Control:
+	var page := _page("PROGRESS", "ESC  BACK")
+	_progress_rows = []
+	# sized for all eleven rows: passing one placeholder makes a panel one row tall
+	var sizing: Array = []
+	for i in 11:
+		sizing.append("INSCRIPTIONS READ")
+	# step 10, not 11: at 11 the panel runs into the footer band
+	var box := UiTheme.add_panel(page, sizing, 1, 10, ["00 / 00"], 230.0)
+	_progress_origin = box[0]
+	_progress_w = (box[1] as Vector2).x
+	# 11 rows: five stats, a rule, then five counters
+	for i in 11:
+		var y := _progress_origin.y + (UiTheme.MENU_Y0 - UiTheme.PANEL_Y) + i * 10
+		var name_label := PixelLabel.make("", 1, UiTheme.BONE)
+		name_label.position = Vector2(_progress_origin.x + 14, y)
+		page.add_child(name_label)
+		var val := PixelLabel.make("", 1, UiTheme.EMBER)
+		val.position = Vector2(_progress_origin.x + _progress_w - 14, y)
+		page.add_child(val)
+		_progress_rows.append([name_label, val])
+	return page
+
+
+func _refresh_progress() -> void:
+	var t := Run.totals()
+	var rows: Array = []
+	for i in Run.STAT_NAMES.size():
+		rows.append(["%s  (%s)" % [Run.STAT_NAMES[i], Run.STAT_EFFECTS[i]],
+				"%d" % Run.stats[i]])
+	rows.append(["-", ""])
+	rows.append(["LEVEL", "%d" % Run.level()])
+	rows.append(["BONFIRES LIT", "%d / %d" % [Run.lit_bonfires.size(), t["bonfires"]]])
+	rows.append(["REGIONS FOUND", "%d / %d" % [Run.seen_areas.size(), t["areas"]]])
+	rows.append(["INSCRIPTIONS READ", "%d / %d" % [Run.read_runes.size(), t["runes"]]])
+	rows.append(["HOLLOWS SLAIN", "%d" % Run.slain])
+
+	for i in _progress_rows.size():
+		var name_label: PixelLabel = _progress_rows[i][0]
+		var val: PixelLabel = _progress_rows[i][1]
+		if i >= rows.size():
+			name_label.text = ""
+			val.text = ""
+			continue
+		var is_rule: bool = rows[i][0] == "-"
+		name_label.text = "" if is_rule else rows[i][0]
+		name_label.tint = UiTheme.BONE_DIM if i < Run.STAT_NAMES.size() else UiTheme.BONE
+		val.text = rows[i][1]
+		# right-aligned: the column only lines up if each label is re-placed
+		val.position.x = _progress_origin.x + _progress_w - UiTheme.PANEL_PAD_X - val.size.x
 
 
 func _build_controls() -> Control:
@@ -181,7 +238,7 @@ func _unhandled_input(event: InputEvent) -> void:
 				_show(Screen.MAIN)
 			else:
 				_input_list(k, _options)
-		Screen.CONTROLS:
+		Screen.CONTROLS, Screen.PROGRESS:
 			if k.physical_keycode in [KEY_ESCAPE, KEY_ENTER, KEY_KP_ENTER, KEY_SPACE]:
 				_show(Screen.MAIN)
 	_consume()
@@ -206,10 +263,13 @@ func _on_activated(idx: int) -> void:
 		0:
 			close()
 		1:
-			_show(Screen.CONTROLS)
+			_refresh_progress()
+			_show(Screen.PROGRESS)
 		2:
-			_show(Screen.OPTIONS)
+			_show(Screen.CONTROLS)
 		3:
+			_show(Screen.OPTIONS)
+		4:
 			get_tree().paused = false
 			_open = false
 			quit_to_menu.emit()

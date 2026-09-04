@@ -89,6 +89,29 @@ static func add_rows(parent: Node, rows: Array, origin: Vector2,
 		parent.add_child(key)
 
 
+## The footer every menu ends with: a dark band, a hair-line rule, and the key
+## hints. The band is not decoration — without it whatever is behind the menu
+## (the bone heap on the title screen, the HUD's own hint in game) shows through
+## the text and neither is readable.
+static func add_footer(parent: Node, hint: String) -> void:
+	var band := ColorRect.new()
+	band.color = Color(0.02, 0.018, 0.03, 0.90)
+	band.position = Vector2(0, VIEW.y - 17)
+	band.size = Vector2(VIEW.x, 17)
+	band.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	parent.add_child(band)
+
+	var rule := ColorRect.new()
+	rule.color = Color(0.36, 0.33, 0.30, 0.55)
+	rule.position = Vector2(0, VIEW.y - 17)
+	rule.size = Vector2(VIEW.x, 1)
+	parent.add_child(rule)
+
+	var tip := PixelLabel.make(hint, 1, BONE_FAINT)
+	tip.center_on(VIEW.x * 0.5, VIEW.y - 12)
+	parent.add_child(tip)
+
+
 ## A bone-framed box. NinePatchRect keeps the border crisp at any size.
 static func panel(size: Vector2) -> NinePatchRect:
 	var p := NinePatchRect.new()

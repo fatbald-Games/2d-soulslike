@@ -11,13 +11,23 @@ const GHOST_DELAY := 0.35        # how long the ghost hangs before it drains
 const GHOST_SPEED := 0.55        # fraction of the bar it sheds per second
 const HINT_HOLD := 7.0           # seconds the control hint stays up
 
+## Each point of VIGOR / ENDURANCE makes its bar this much wider. The bar
+## GROWING is the point — a number going up in a menu is bookkeeping, a bar that
+## visibly reaches further across the screen is progress you feel.
+const W_PER_POINT := 4.0
+const TICK_GAP := 9.0
+const MAX_TICKS := 24
+
 var _hp_fill: ColorRect
 var _hp_edge: ColorRect
 var _hp_ghost: ColorRect
 var _st_fill: ColorRect
 var _st_edge: ColorRect
-var _hp_frame: TextureRect      # kept so tests can assert the draw order
-var _sp_frame: TextureRect
+var _hp_frame: NinePatchRect    # kept so tests can assert the draw order
+var _sp_frame: NinePatchRect
+var _hp_ticks: Array[ColorRect] = []
+var _sp_ticks: Array[ColorRect] = []
+var _level: PixelLabel
 var _souls: PixelLabel
 var _fade: ColorRect
 var _died: PixelLabel
@@ -52,21 +62,26 @@ func _ready() -> void:
 
 	# Draw order matters: the plate is OPAQUE, so anything added after it is
 	# hidden underneath. Frame, then ghost, then fill, then the lit top edge,
-	# then the scoring overlay LAST — its ticks sit on top of the fill and
-	# read as scored segments instead of one solid smear.
-	_hp_frame = _frame(hp_pos, "bar_frame_hp.png")
+	# then the scoring ticks LAST — they sit on top of the fill and read as
+	# scored segments instead of one solid smear.
+	#
+	# The frames are NinePatchRects rather than plain textures so the plate can
+	# stretch while the fang caps stay crisp: that is what lets the bar get
+	# longer when VIGOR is bought.
+	_hp_frame = _patch(hp_pos, "bar_frame_hp.png", UiTheme.HP_CAP)
 	var hp_origin := hp_pos + Vector2(UiTheme.HP_CAP, UiTheme.CHANNEL_INSET_Y)
 	_hp_ghost = _rect(hp_origin, _hp_channel, UiTheme.BLOOD_GHOST)
 	_hp_fill = _rect(hp_origin, _hp_channel, UiTheme.BLOOD)
 	_hp_edge = _rect(hp_origin, Vector2(_hp_channel.x, 2), UiTheme.BLOOD_HI)
-	_frame(hp_pos, "bar_overlay_hp.png")
+	_hp_ticks = _tick_pool(hp_origin, _hp_channel.y)
 
 	# --- stamina ---
-	_sp_frame = _frame(sp_pos, "bar_frame_sp.png")
+	_sp_frame = _patch(sp_pos, "bar_frame_sp.png", UiTheme.SP_CAP)
 	var sp_origin := sp_pos + Vector2(UiTheme.SP_CAP, UiTheme.CHANNEL_INSET_Y)
 	_st_fill = _rect(sp_origin, _sp_channel, UiTheme.STAMINA)
 	_st_edge = _rect(sp_origin, Vector2(_sp_channel.x, 2), UiTheme.STAMINA_HI)
-	_frame(sp_pos, "bar_overlay_sp.png")
+	_sp_ticks = _tick_pool(sp_origin, _sp_channel.y)
+	refresh_stats()
 
 	# --- flask charges, as pips under the bars ---
 	_flask_row = Control.new()
@@ -83,6 +98,10 @@ func _ready() -> void:
 	_souls.position = Vector2(22, sp_pos.y + UiTheme.SP_FRAME.y + 15)
 	add_child(_souls)
 	set_souls(0)
+
+	_level = PixelLabel.make("LV 1", 1, UiTheme.BONE)
+	_level.position = Vector2(8, sp_pos.y + UiTheme.SP_FRAME.y + 24)
+	add_child(_level)
 
 	# The hint used to sit there forever and just added noise. Now it introduces
 	# the controls and fades out; OPTIONS can switch it off entirely.
@@ -126,12 +145,53 @@ func _ready() -> void:
 	add_child(_inscription)
 
 
-func _frame(pos: Vector2, tex_name: String) -> TextureRect:
-	var f := TextureRect.new()
+## A bar frame that can be stretched. Only the middle plate moves; the fang
+## caps sit inside the fixed patch margins and stay pixel-exact at any width.
+func _patch(pos: Vector2, tex_name: String, cap: int) -> NinePatchRect:
+	var f := NinePatchRect.new()
 	f.texture = UiTheme.tex(tex_name)
+	f.patch_margin_left = cap
+	f.patch_margin_right = cap
 	f.position = pos
 	add_child(f)
 	return f
+
+
+## Scoring ticks are drawn as a fixed pool and simply hidden past the current
+## bar width, so a growing bar gains segments without rebuilding anything.
+func _tick_pool(origin: Vector2, height: float) -> Array[ColorRect]:
+	var pool: Array[ColorRect] = []
+	for i in MAX_TICKS:
+		var t := ColorRect.new()
+		t.color = Color(0.035, 0.031, 0.047, 0.51)
+		t.position = origin
+		t.size = Vector2(1, height)
+		t.visible = false
+		add_child(t)
+		pool.append(t)
+	return pool
+
+
+## Re-reads the stats and stretches both bars to match. Called on spawn and the
+## instant a level is bought at a bonfire.
+func refresh_stats() -> void:
+	_hp_channel.x = UiTheme.HP_FRAME.x - UiTheme.HP_CAP * 2 + Run.stats[0] * W_PER_POINT
+	_sp_channel.x = UiTheme.SP_FRAME.x - UiTheme.SP_CAP * 2 + Run.stats[1] * W_PER_POINT
+	_hp_frame.size = Vector2(_hp_channel.x + UiTheme.HP_CAP * 2, UiTheme.HP_FRAME.y)
+	_sp_frame.size = Vector2(_sp_channel.x + UiTheme.SP_CAP * 2, UiTheme.SP_FRAME.y)
+	_lay_ticks(_hp_ticks, _hp_fill.position, _hp_channel.x)
+	_lay_ticks(_sp_ticks, _st_fill.position, _sp_channel.x)
+	if _level != null:
+		_level.text = "LV %d" % Run.level()
+
+
+func _lay_ticks(pool: Array[ColorRect], origin: Vector2, width: float) -> void:
+	var x := TICK_GAP
+	for t in pool:
+		t.visible = x < width - 1.0
+		if t.visible:
+			t.position.x = origin.x + x
+		x += TICK_GAP
 
 
 func _rect(pos: Vector2, size: Vector2, col: Color) -> ColorRect:

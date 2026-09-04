@@ -125,6 +125,44 @@ func _process(_delta: float) -> bool:
 		370:
 			_grab("09_bonfire")
 		374:
+			# a few levels bought, so the bars show their growth
+			Run.souls = 4000
+			Run.stats[Run.VIGOR] = 4
+			Run.stats[Run.ENDURANCE] = 3
+			Run.stats[Run.AGILITY] = 2
+			current_scene.player.apply_stats(true)
+			current_scene.hud.refresh_stats()
+			current_scene.hud.set_souls(Run.souls)
+			Run.seen_areas["THE ASHEN GATE"] = true
+			Run.seen_areas["THE OSSUARY"] = true
+			Run.seen_areas["THE FLOODED CISTERN"] = true
+			Run.read_runes["1"] = true
+			Run.read_runes["2"] = true
+			Run.slain = 17
+		378:
+			# hold the ACTION across a frame: pressing and releasing a raw key in
+			# the same frame can slip past is_action_just_pressed entirely
+			Input.action_press("interact")
+		381:
+			Input.action_release("interact")
+		386:
+			_key(KEY_DOWN)
+		390:
+			_key(KEY_ENTER)                # LEVEL UP
+		398:
+			_grab("14_levelup")
+		402:
+			_key(KEY_ESCAPE)
+			_key(KEY_ESCAPE)
+		410:
+			_key(KEY_ESCAPE)               # pause
+		416:
+			_key(KEY_DOWN)
+		420:
+			_key(KEY_ENTER)                # PROGRESS
+		428:
+			_grab("15_progress")
+		432:
 			print("done.")
 			quit(0)
 			return true

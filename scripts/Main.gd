@@ -18,8 +18,10 @@ var floor_top := 0.0                 # y the player spawns standing on
 
 var _lights: Array = []
 var _runes: Array = []               # [{node, pos, text}]
-var _bonfires: Array = []            # world positions
+var _bonfires: Array = []            # [{pos, key, sprite, light, embers, lit}]
+var bonfire_menu                     # BonfireMenu.gd instance
 var _soul_orb: Node2D = null
+var _near_bonfire: Dictionary = {}
 var _camera: Camera2D
 var _shake := 0.0
 var _sparks: CPUParticles2D
@@ -37,6 +39,7 @@ func _ready() -> void:
 	_build_lighting_root()
 	hud = _build_hud()
 	pause_menu = _build_pause_menu()
+	bonfire_menu = _build_bonfire_menu()
 	_spawn_entities()
 	_place_at_checkpoint()
 	_build_sparks()
@@ -97,8 +100,7 @@ func _spawn_entities() -> void:
 			"hollow":
 				_spawn_hollow(foot)
 			"bonfire":
-				_bonfires.append(foot)
-				_bonfire(foot)
+				_bonfire(foot, Run.key(tx, ty))
 			"torch":
 				_torch(Vector2((tx + 0.5) * TW, (ty + 0.5) * TW))
 			"mushroom":
@@ -108,7 +110,7 @@ func _spawn_entities() -> void:
 				_glow_prop("brazier.png", 9, 9, foot + Vector2(0, -5),
 						Color(1.0, 0.52, 0.20), 1.5, 0.85)
 			"rune":
-				_rune(foot, e["text"])
+				_rune(foot, e["text"], Run.key(tx, ty))
 
 
 func _box(parent: Node, pos: Vector2, size: Vector2) -> void:
@@ -120,10 +122,44 @@ func _box(parent: Node, pos: Vector2, size: Vector2) -> void:
 	parent.add_child(cs)
 
 
-func _bonfire(foot: Vector2) -> void:
-	_anim_prop("bonfire.png", 24, 24, [0, 1, 2, 3], 8.0, foot + Vector2(0, -12))
-	_embers(foot + Vector2(0, -16))
-	_light(self, foot + Vector2(0, -14), Color(1.0, 0.72, 0.42), 1.55, 0.95, 0.13)
+## A bonfire you have not reached yet sits cold and dark. Lighting it is the
+## clearest progress marker in the game — you can see it from across a room, and
+## it stays lit for the rest of the run.
+func _bonfire(foot: Vector2, key: String) -> void:
+	var lit: bool = Run.lit_bonfires.has(key)
+	var a := AnimatedSprite2D.new()
+	var sf := SpriteFrames.new()
+	SpriteUtil.add_anim(sf, "burn", _tex("bonfire.png"), [0, 1, 2, 3], 8.0, true, 24, 24)
+	SpriteUtil.add_anim(sf, "cold", _tex("bonfire.png"), [4], 1.0, false, 24, 24)
+	a.sprite_frames = sf
+	a.centered = true
+	a.position = foot + Vector2(0, -12)
+	a.play("burn" if lit else "cold")
+	add_child(a)
+
+	var em := _embers(foot + Vector2(0, -16))
+	em.emitting = lit
+	var l := _light(self, foot + Vector2(0, -14), Color(1.0, 0.72, 0.42),
+			1.55, 0.95, 0.13)
+	l.visible = lit
+	_bonfires.append({"pos": foot, "key": key, "sprite": a, "light": l,
+			"embers": em, "lit": lit})
+
+
+func _light_bonfire(b: Dictionary) -> void:
+	if b["lit"]:
+		return
+	b["lit"] = true
+	Run.light_bonfire(b["key"])
+	var a: AnimatedSprite2D = b["sprite"]
+	a.play("burn")
+	(b["embers"] as CPUParticles2D).emitting = true
+	var l: PointLight2D = b["light"]
+	l.visible = true
+	l.energy = 5.0                       # a flare, settling back to normal
+	create_tween().tween_property(l, "energy", 1.55, 0.9)
+	_add_shake(2.0)
+	hud.show_area("BONFIRE LIT")
 
 
 ## Torches take the colour of the region they burn in — cold blue stone under
@@ -142,12 +178,12 @@ func _glow_prop(sheet: String, fw: int, fh: int, pos: Vector2,
 
 ## An inscribed stone. It lights up and shows its line when you stand on it —
 ## the only storytelling in the game, so it has to be readable in passing.
-func _rune(foot: Vector2, text: String) -> void:
+func _rune(foot: Vector2, text: String, key: String) -> void:
 	var s := Sprite2D.new()
 	s.texture = SpriteUtil.frame_of(_tex("rune.png"), 0, 7, 7)
 	s.position = foot + Vector2(0, -5)
 	add_child(s)
-	_runes.append({"node": s, "pos": s.position, "text": text})
+	_runes.append({"node": s, "pos": s.position, "text": text, "key": key})
 
 
 func _anim_prop(anim_name: String, fw: int, fh: int, idx: Array, fps: float, pos: Vector2) -> void:
@@ -162,7 +198,7 @@ func _anim_prop(anim_name: String, fw: int, fh: int, idx: Array, fps: float, pos
 	add_child(a)
 
 
-func _embers(pos: Vector2) -> void:
+func _embers(pos: Vector2) -> CPUParticles2D:
 	var p := CPUParticles2D.new()
 	p.position = pos
 	p.amount = 18
@@ -186,6 +222,7 @@ func _embers(pos: Vector2) -> void:
 	g.set_color(1, Color(0.85, 0.25, 0.10, 0.0))
 	p.color_ramp = g
 	add_child(p)
+	return p
 
 
 ## Only the darkness itself — every actual light rides along with the torch or
@@ -229,7 +266,7 @@ func _spawn_player(pos: Vector2) -> Player:
 	SpriteUtil.add_anim(sf, "idle", _tex("hero_idle.png"), [0, 1, 2, 3], 6.0, true)
 	SpriteUtil.add_anim(sf, "run", _tex("hero_run.png"), [0, 1, 2, 3, 4, 5], 10.0, true)
 	SpriteUtil.add_anim(sf, "attack", _tex("hero_attack.png"), [0, 1, 2, 3],
-			4.0 / Player.ATTACK_TIME, false)
+			4.0 / Player.ATTACK_TIME_BASE, false)
 	SpriteUtil.add_anim(sf, "roll", _tex("hero_roll.png"), [0, 1, 2, 3],
 			4.0 / Player.ROLL_TIME, false)
 	s.sprite_frames = sf
@@ -272,6 +309,22 @@ func _build_hud() -> CanvasLayer:
 	return h
 
 
+func _build_bonfire_menu() -> CanvasLayer:
+	var b: CanvasLayer = load("res://scripts/BonfireMenu.gd").new()
+	add_child(b)
+	b.rested.connect(_on_rested)
+	b.levelled.connect(_on_levelled)
+	return b
+
+
+func _on_levelled() -> void:
+	player.apply_stats(true)             # a bought level heals you to the new max
+	hud.refresh_stats()
+	hud.set_souls(Run.souls)
+	player.souls = Run.souls
+	_add_shake(1.5)
+
+
 func _build_pause_menu() -> CanvasLayer:
 	var p: CanvasLayer = load("res://scripts/PauseMenu.gd").new()
 	add_child(p)
@@ -292,8 +345,8 @@ func _wire_hud() -> void:
 	player.flask_changed.connect(hud.set_flask)
 	player.hit_landed.connect(_on_hit_landed)
 	player.died.connect(_on_player_died)
-	hud.set_health(player.health, Player.HEALTH_MAX)
-	hud.set_stamina(player.stamina, Player.STAMINA_MAX)
+	hud.set_health(player.health, player.health_max)
+	hud.set_stamina(player.stamina, player.stamina_max)
 	hud.set_souls(player.souls)
 	hud.set_flask(player.flask, Player.FLASK_MAX)
 
@@ -421,24 +474,25 @@ func _tick_shake(delta: float) -> void:
 ## Resting is the whole structure of the game: it heals, refills the flask,
 ## puts every hollow back, and makes this fire the place you respawn.
 func _track_bonfire() -> void:
-	var near := Vector2.INF
-	for pos in _bonfires:
-		if player.global_position.distance_to(pos) < BONFIRE_RANGE:
-			near = pos
+	_near_bonfire = {}
+	for b in _bonfires:
+		if player.global_position.distance_to(b["pos"]) < BONFIRE_RANGE:
+			_near_bonfire = b
 			break
-	if near == Vector2.INF:
+	if _near_bonfire.is_empty():
 		hud.show_prompt("")
 		return
-	hud.show_prompt("E   REST")
+	hud.show_prompt("E   BONFIRE" if _near_bonfire["lit"] else "E   LIGHT BONFIRE")
 	if Input.is_action_just_pressed("interact") and player.state != Player.State.DEAD:
-		_rest_at(near)
+		_light_bonfire(_near_bonfire)
+		Run.rest_at(_near_bonfire["pos"])
+		hud.show_prompt("")
+		bonfire_menu.open()
 
 
-func _rest_at(pos: Vector2) -> void:
-	Run.rest_at(pos)
+func _on_rested() -> void:
 	player.rest()
 	_respawn_hollows()
-	hud.show_prompt("")
 	hud.show_area("RESTED")
 
 
@@ -471,6 +525,7 @@ func _track_area() -> void:
 	var here := level.area_at(player.global_position + Vector2(0, -12))
 	if here != "" and here != _area:
 		_area = here
+		Run.see_area(here)
 		hud.show_area(here)
 
 
@@ -484,6 +539,8 @@ func _track_runes() -> void:
 			best = d
 			nearest = r["text"]
 		var s: Sprite2D = r["node"]
-		s.texture = SpriteUtil.frame_of(_tex("rune.png"),
-				1 if d < RUNE_READ_RANGE else 0, 7, 7)
+		var close := d < RUNE_READ_RANGE
+		if close:
+			Run.read_rune(r["key"])
+		s.texture = SpriteUtil.frame_of(_tex("rune.png"), 1 if close else 0, 7, 7)
 	hud.show_inscription(nearest)

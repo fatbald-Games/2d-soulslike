@@ -116,24 +116,7 @@ func _page(heading: String, scale_px: int, hint: String) -> CanvasLayer:
 			UiTheme.TITLE_Y + (0 if scale_px >= 4 else 6))
 	layer.add_child(title)
 
-	# the bone heap runs right along the bottom, so the hint needs its own dark
-	# band or it disappears into the bones
-	var footer := ColorRect.new()
-	footer.color = Color(0.02, 0.018, 0.03, 0.82)
-	footer.position = Vector2(0, UiTheme.VIEW.y - 17)
-	footer.size = Vector2(UiTheme.VIEW.x, 17)
-	footer.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	layer.add_child(footer)
-
-	var rule := ColorRect.new()
-	rule.color = Color(0.36, 0.33, 0.30, 0.55)
-	rule.position = Vector2(0, UiTheme.VIEW.y - 17)
-	rule.size = Vector2(UiTheme.VIEW.x, 1)
-	layer.add_child(rule)
-
-	var tip := PixelLabel.make(hint, 1, UiTheme.BONE_FAINT)
-	tip.center_on(UiTheme.VIEW.x * 0.5, UiTheme.VIEW.y - 12)
-	layer.add_child(tip)
+	UiTheme.add_footer(layer, hint)
 	return layer
 
 

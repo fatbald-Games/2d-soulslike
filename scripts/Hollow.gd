@@ -145,6 +145,7 @@ func _die() -> void:
 	_enter(State.DEAD)
 	if not _rewarded:
 		_rewarded = true
+		Run.slain += 1
 		var p := _player()
 		if p != null and p.has_method("add_souls"):
 			p.add_souls(SOULS_REWARD)
