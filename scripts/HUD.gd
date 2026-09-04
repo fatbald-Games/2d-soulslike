@@ -25,6 +25,9 @@ var _area: PixelLabel
 var _inscription: PixelLabel
 var _area_tween: Tween
 var _hint: PixelLabel
+var _flask_row: Control
+var _prompt: PixelLabel
+var _shown_prompt := ""
 var _shown_text := ""
 
 var _hp_ratio := 1.0
@@ -65,14 +68,19 @@ func _ready() -> void:
 	_st_edge = _rect(sp_origin, Vector2(_sp_channel.x, 2), UiTheme.STAMINA_HI)
 	_frame(sp_pos, "bar_overlay_sp.png")
 
+	# --- flask charges, as pips under the bars ---
+	_flask_row = Control.new()
+	_flask_row.position = Vector2(8, sp_pos.y + UiTheme.SP_FRAME.y + 3)
+	add_child(_flask_row)
+
 	# --- souls, counted beside a skull ---
 	var skull := TextureRect.new()
 	skull.texture = UiTheme.frame_tex("skull.png", 0, MenuList.SKULL_W, MenuList.SKULL_H)
-	skull.position = Vector2(8, sp_pos.y + UiTheme.SP_FRAME.y + 4)
+	skull.position = Vector2(8, sp_pos.y + UiTheme.SP_FRAME.y + 14)
 	add_child(skull)
 
 	_souls = PixelLabel.make("", 1, Color(0.816, 0.769, 0.588))
-	_souls.position = Vector2(22, sp_pos.y + UiTheme.SP_FRAME.y + 5)
+	_souls.position = Vector2(22, sp_pos.y + UiTheme.SP_FRAME.y + 15)
 	add_child(_souls)
 	set_souls(0)
 
@@ -104,6 +112,12 @@ func _ready() -> void:
 	_area.shadow_tint = Color(0, 0, 0, 0.85)
 	_area.modulate = Color(1, 1, 1, 0)
 	add_child(_area)
+
+	# --- "E REST" and the like, shown when something is in reach ---
+	_prompt = PixelLabel.make("", 1, UiTheme.EMBER)
+	_prompt.shadow_tint = Color(0, 0, 0, 0.9)
+	_prompt.modulate = Color(1, 1, 1, 0)
+	add_child(_prompt)
 
 	# --- the line on whichever inscribed stone he is standing on ---
 	_inscription = PixelLabel.make("", 1, Color(0.78, 0.72, 0.60))
@@ -148,6 +162,32 @@ func set_stamina(cur: float, maxv: float) -> void:
 
 func set_souls(n: int) -> void:
 	_souls.text = "%d" % n
+
+
+## One pip per charge: filled while you still have it, drained once spent.
+func set_flask(cur: int, maxv: int) -> void:
+	for c in _flask_row.get_children():
+		c.queue_free()
+	for i in maxv:
+		var pip := TextureRect.new()
+		pip.texture = UiTheme.frame_tex("flask.png", 0 if i < cur else 1, 5, 7)
+		pip.position = Vector2(i * 7, 0)
+		pip.modulate = Color(1, 1, 1, 1.0 if i < cur else 0.45)
+		_flask_row.add_child(pip)
+
+
+## An action offered by whatever is in reach. Called every frame, so it only
+## touches the label when the text actually changes.
+func show_prompt(text: String) -> void:
+	if text == _shown_prompt:
+		return
+	_shown_prompt = text
+	if text.is_empty():
+		_prompt.modulate = Color(1, 1, 1, 0)
+		return
+	_prompt.text = text
+	_prompt.center_on(UiTheme.VIEW.x * 0.5, UiTheme.VIEW.y - 44)
+	_prompt.modulate = Color(1, 1, 1, 1)
 
 
 ## Fade a region name in over the middle of the screen, hold, fade out.

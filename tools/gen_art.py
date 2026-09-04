@@ -1395,6 +1395,8 @@ def main():
     save(beam_tile(), "tile_beam.png")
     save(ladder_tile(), "tile_ladder.png")
     save(hsheet(rune_frames()), "rune.png")
+    # the orb is a thing in the world, not a HUD element
+    save(hsheet(soul_orb_frames()), "soul_orb.png")
 
     # --- in-game combat animation sheets (44x32 frames, shared anchor) ---
     hi = hero_idle32()
@@ -1433,7 +1435,6 @@ def main():
     save_ui(ui_panel(), "panel.png")
     save_ui(vignette(), "vignette.png")
     save_ui(hsheet(flask_frames()), "flask.png")
-    save_ui(hsheet(soul_orb_frames()), "soul_orb.png")
     save_ui(font_sheet(), "font_5x7.png")
     skulls = skull_frames()
     save_ui(hsheet(skulls), "skull.png")

@@ -30,6 +30,10 @@ var _strike_seen := false
 var _old_main: Node
 var _y0 := 0.0
 var _ladder_tile := Vector2i.ZERO
+var _hp0 := 0.0
+var _bonfire_pos := Vector2.ZERO
+var _enemies0 := 0
+var _souls_at_death := 0
 
 
 func _initialize() -> void:
@@ -71,7 +75,7 @@ func _release(action: String) -> void:
 
 
 func _release_all() -> void:
-	for a in ["left", "right", "up", "down", "jump", "attack", "dodge"]:
+	for a in ["left", "right", "up", "down", "jump", "attack", "dodge", "heal", "interact"]:
 		Input.action_release(a)
 
 
@@ -97,9 +101,11 @@ func _physics_process(_delta: float) -> bool:
 		5: _phase_roll_iframes()
 		6: _phase_hollow_attack_loop()
 		7: _phase_traversal()
-		8: _phase_hud()
-		9: _phase_damage_and_death()
-		10: _phase_respawn()
+		8: _phase_flask()
+		9: _phase_bonfire()
+		10: _phase_hud()
+		11: _phase_damage_and_death()
+		12: _phase_respawn()
 		_: return _finish()
 	return false
 
@@ -398,6 +404,88 @@ func _find_ladder_bottom() -> Vector2i:
 	return Vector2i(-1, -1)
 
 
+## The flask: a big heal that costs a charge and locks him in place. It must
+## not be a free reset — no i-frames, and it runs out.
+func _phase_flask() -> void:
+	if _phase_frame == 0:
+		_player.global_position = Vector2(72.0, _main.floor_top)
+		_player.velocity = Vector2.ZERO
+		_player.stamina = Player.STAMINA_MAX
+		_player._invuln = 0.0
+		_player.flask = Player.FLASK_MAX
+		_player.health = 30.0
+		return
+	if _phase_frame == 4:
+		_hp0 = _player.health
+		_press("heal")
+		return
+	if _phase_frame == 6:
+		_release_all()
+		_ok("drinking enters the DRINK state",
+				_player.state == Player.State.DRINK, "state=%d" % _player.state)
+		_ok("the heal is not instant", is_equal_approx(_player.health, _hp0),
+				"health=%.1f" % _player.health)
+		_ok("drinking grants no invulnerability", not _player.is_invulnerable())
+		return
+	if _phase_frame == 36:
+		_ok("the flask heals", _player.health > _hp0 + 40.0,
+				"%.1f -> %.1f" % [_hp0, _player.health])
+		_ok("drinking spends a charge", _player.flask == Player.FLASK_MAX - 1,
+				"flask=%d" % _player.flask)
+		return
+	if _phase_frame == 52:
+		_ok("the drink ends", _player.state != Player.State.DRINK,
+				"state=%d" % _player.state)
+		_player.flask = 0
+		_player.health = 20.0
+		_press("heal")
+		return
+	if _phase_frame == 56:
+		_release_all()
+		_ok("an empty flask refuses to drink",
+				_player.state != Player.State.DRINK, "state=%d" % _player.state)
+		_next()
+
+
+## Resting is the structural core: heal, refill, respawn every hollow, and make
+## this fire the place death sends you back to.
+func _phase_bonfire() -> void:
+	if _phase_frame == 0:
+		_bonfire_pos = _main._bonfires[0]
+		_player.global_position = _bonfire_pos
+		_player.velocity = Vector2.ZERO
+		_player.health = 25.0
+		_player.flask = 0
+		# thin the ranks, so the respawn has something to put back
+		var alive := get_nodes_in_group("enemy")
+		for i in mini(3, alive.size()):
+			alive[i].queue_free()
+		return
+	if _phase_frame == 4:
+		_enemies0 = get_nodes_in_group("enemy").size()
+		_ok("some hollows are dead before resting", _enemies0 < _map_hollows(),
+				"%d of %d" % [_enemies0, _map_hollows()])
+		_press("interact")
+		return
+	if _phase_frame == 8:
+		_release_all()
+		_ok("resting heals to full",
+				is_equal_approx(_player.health, Player.HEALTH_MAX),
+				"health=%.1f" % _player.health)
+		_ok("resting refills the flask", _player.flask == Player.FLASK_MAX,
+				"flask=%d" % _player.flask)
+		_ok("resting sets the checkpoint", Run.has_checkpoint)
+		_ok("the checkpoint is this bonfire",
+				Run.checkpoint.distance_to(_bonfire_pos) < 1.0,
+				"%s vs %s" % [Run.checkpoint, _bonfire_pos])
+		return
+	if _phase_frame >= 12:
+		_ok("resting puts every hollow back",
+				get_nodes_in_group("enemy").size() == _map_hollows(),
+				"%d of %d" % [get_nodes_in_group("enemy").size(), _map_hollows()])
+		_next()
+
+
 ## The HUD is the one part a headless run cannot LOOK at, so assert the things
 ## that made it wrong before: the bone frame is opaque, so a fill added before
 ## it is painted over and the bar reads as empty no matter what the value is.
@@ -480,11 +568,17 @@ func _phase_damage_and_death() -> void:
 				is_equal_approx(_player.health, Player.HEALTH_MAX - 30.0),
 				"health=%.1f" % _player.health)
 		_player._invuln = 0.0
+		_player.add_souls(500)
+		_souls_at_death = _player.souls
 		_player.take_damage(1000.0, _player.global_position + Vector2(20, 0))
 		return
 	if _phase_frame >= 4:
 		_ok("lethal damage kills the player", _player.state == Player.State.DEAD)
 		_ok("death signal fires", _died)
+		_ok("dying drops the souls you were carrying", Run.has_drop,
+				"carried %d" % _souls_at_death)
+		_ok("the drop holds what he had", Run.dropped_souls == _souls_at_death,
+				"%d vs %d" % [Run.dropped_souls, _souls_at_death])
 		_ok("health floors at zero", _player.health >= 0.0, "health=%.1f" % _player.health)
 		_next()
 
@@ -510,6 +604,11 @@ func _phase_respawn() -> void:
 				is_equal_approx(fresh.player.health, Player.HEALTH_MAX),
 				"health=%.1f" % fresh.player.health)
 		_ok("the respawned player is alive", fresh.player.state != Player.State.DEAD)
+	_ok("death returns him to the bonfire, not the start",
+			fresh.player.global_position.distance_to(Run.checkpoint) < 24.0,
+			"%s vs checkpoint %s" % [fresh.player.global_position, Run.checkpoint])
+	_ok("the dropped souls are waiting in the reloaded level",
+			fresh._soul_orb != null and is_instance_valid(fresh._soul_orb))
 	_ok("the reloaded scene repopulates its enemies",
 			get_nodes_in_group("enemy").size() == _map_hollows(),
 			"got %d" % get_nodes_in_group("enemy").size())

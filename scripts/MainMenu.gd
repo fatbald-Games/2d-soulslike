@@ -281,6 +281,7 @@ func _on_option_changed(idx: int, dir: int) -> void:
 
 func _start_game() -> void:
 	_leaving = true
+	Run.reset()          # otherwise the previous run's bonfire and souls carry over
 	get_tree().change_scene_to_file("res://scenes/Main.tscn")
 
 

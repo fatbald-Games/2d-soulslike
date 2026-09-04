@@ -2,10 +2,11 @@
 
 Ein 2D-Soulslike in düsterer Retro-Pixelgrafik. **Engine: Godot 4.x.**
 
-Stand: **spielbarer Vertikal-Slice.** Ein Kerker aus fünf Bereichen über acht
-Bildschirme, mit Leitern, Vorsprüngen und Balken; Titelbildschirm, Pause-Menü
-und Knochen-HUD; Angriff, Ausweichrolle mit i-Frames, Ausdauer-Haushalt, ein
-Gegner mit telegrafiertem Angriff, Seelen als Währung und „YOU DIED"-Respawn.
+Stand: **spielbarer Vertikal-Slice mit vollem Souls-Kreislauf.** Ein Kerker aus
+fünf Bereichen über acht Bildschirme, mit Leitern, Vorsprüngen und Balken;
+Lagerfeuer als Checkpoints, Heiltrank und Seelen, die beim Tod liegen bleiben;
+Titelbildschirm, Options- und Pause-Menü, Knochen-HUD; Angriff, Ausweichrolle
+mit i-Frames, Ausdauer-Haushalt und ein Gegner mit telegrafiertem Angriff.
 
 ![Titelbildschirm](tools/shots/01_title.png)
 
@@ -23,6 +24,8 @@ Gegner mit telegrafiertem Angriff, Seelen als Währung und „YOU DIED"-Respawn.
 | `Leertaste` | Springen |
 | `J` oder linke Maustaste | Angriff |
 | `K` oder `Shift` | **Ausweichrolle** |
+| `Q` | **Flakon trinken** (heilt, macht dich kurz wehrlos) |
+| `E` | **Am Lagerfeuer rasten** |
 | `W` `S` (oder ↑/↓) | **Leiter hoch/runter** |
 | `S` + `Leertaste` | durch einen Holzbalken **nach unten durchfallen** |
 | `Esc` | Pause-Menü |
@@ -36,6 +39,17 @@ code-generiert (siehe Pipeline unten):
 - **Titelbildschirm**: eine Gruft mit zwei zuckenden Fackeln, aufsteigenden
   Funken und einem Schädel, der aus dem Knochenhaufen ragt. Auswahl per
   Schädel-Cursor, dessen Augenhöhlen pulsieren.
+- **Panels statt loser Zeilen**: Die Einträge sitzen linksbündig in einem
+  9-Slice-Knochenrahmen, mit einer Leiste hinter der Auswahl. Zentrierter Text
+  lässt jede Zeile woanders anfangen — genau deshalb wirkte das alte Menü wie
+  Text auf einem Bild statt wie ein Menü. Die Panelbreite ergibt sich aus dem
+  längsten Eintrag, deshalb sehen Menüs mit vier und mit zwei Einträgen
+  gleich aus.
+- **Eine Überschrift pro Seite** an fester Stelle. Vorher stand auf den
+  Unterseiten die Überschrift mitten im Spieltitel.
+- **Optionen** (`OPTIONS`): Fenstergröße (2x/3x/4x/Vollbild — ganzzahlig,
+  damit die Pixel quadratisch bleiben), Screen Shake, HUD-Hinweise. Landet in
+  `user://settings.cfg` und überlebt den Neustart.
 - **Pixel-Font statt Systemschrift**: eine eigene 5×7-Bitmap-Schrift
   (`assets/ui/font_5x7.png`). Godots Standardschrift ist vektorbasiert und
   kantengeglättet — neben handgesetzter Pixelart sieht das sofort falsch aus.
@@ -45,6 +59,9 @@ code-generiert (siehe Pipeline unten):
   Knubbel-Enden. Darunter zählt ein Schädel die Seelen.
 - **Schaden-Geist**: nach einem Treffer bleibt ein dunkelroter Streifen kurz
   stehen und läuft dann nach — man *sieht*, was der Fehler gekostet hat.
+- **Flakon-Pips** unter den Leisten zeigen die verbleibenden Ladungen.
+- **Vignette** über der Welt, und der Steuerungs-Hinweis blendet sich nach
+  sieben Sekunden aus, statt dauerhaft im Bild zu stehen.
 - **Pause-Menü** (`Esc`) friert den Kerker ein und blendet ihn ab; das Menü
   selbst läuft in `PROCESS_MODE_ALWAYS` weiter, sonst könnte es sich nie wieder
   schließen.
@@ -92,6 +109,24 @@ Die Physik-Konstanten stehen deshalb an **zwei** Stellen im Gleichklang:
 Sprung ändert, muss den Level neu erzeugen — sonst strandet der Ritter unter
 Absätzen, die er vorher erreicht hat.
 
+## Der Kreislauf
+
+Souls-Struktur, jetzt vollständig:
+
+- **Lagerfeuer sind Checkpoints.** `E` zum Rasten heilt, füllt den Flakon und
+  lässt **alle** Hollows wieder auferstehen. Wer hier rastet, startet nach dem
+  Tod hier — bei acht Bildschirmen Karte ist das keine Bequemlichkeit, sondern
+  die Bedingung dafür, dass Sterben herausfordert statt bestraft.
+- **Der Flakon** (3 Ladungen) heilt 45 Leben, sperrt dich aber 0,75 s fest und
+  gibt **keine** i-Frames. Vor einem ausholenden Hollow zu trinken soll die
+  falsche Entscheidung sein, kein Gratis-Reset.
+- **Seelen fallen beim Tod.** Sie bleiben als leuchtende Kugel liegen, wo du
+  gefallen bist; berühre sie, um sie zurückzuholen. Stirbst du vorher erneut,
+  ist der alte Haufen endgültig weg.
+- **Trefferfeedback**: Funken am Aufschlagpunkt und ein kurzer Kamera-Ruck. Der
+  Ruck rundet auf ganze Pixel — ein gebrochener Kamera-Offset lässt die ganze
+  Pixelart flimmern statt wackeln. Abschaltbar in den Optionen.
+
 ## Das Kampfsystem
 
 Die souls-typische Logik: **jede Aktion kostet Ausdauer und ist verbindlich** —
@@ -107,8 +142,8 @@ Ausdauer da, wenn der Hollow zuschlägt.
 - **Der Hollow** holt **0,55 s lang sichtbar aus**, bevor er zusticht — lang genug,
   um die Rolle zu timen. Danach 0,55 s Erholung: das ist dein Fenster zum Kontern.
 - **Treffer** geben 0,65 s Unverwundbarkeit + Rückstoß (Blinken).
-- **Seelen**: 60 pro Hollow. (Noch fallen sie beim Tod nicht — das kommt mit dem
-  Lagerfeuer-Loop.)
+- **Seelen**: 60 pro Hollow. Beim Tod bleiben sie liegen, wo du gefallen bist
+  (siehe *Der Kreislauf*).
 
 Trefferabfragen laufen bewusst über **explizite Rechteck-Tests** im Code
 (`Player._swing()`, `Hollow._strike()`) statt über Physik-Layer — deterministisch,
@@ -125,16 +160,20 @@ GODOT=/pfad/zu/godot tools/run_tests.sh # oder explizit
 ```
 
 Der Runner prüft erst das **Level-Layout** (Erreichbarkeit, siehe oben) und
-spielt dann **zwei Suiten** durch, zusammen **87 Zusicherungen**:
+spielt dann **zwei Suiten** durch, zusammen **114 Zusicherungen**:
 
-- `tools/smoke_test.gd` (63) startet die echte `Main.tscn` und drückt Frame für
+- `tools/smoke_test.gd` (80) startet die echte `Main.tscn` und drückt Frame für
   Frame die Tasten: Landen und Laufen, der Ausdauer-Haushalt (inklusive: ein
   Angriff ohne Ausdauer startet gar nicht), die Trefferabfrage des Schwerts, die
   i-Frames der Rolle samt verwundbarer Erholung, der komplette Telegraf-Zyklus
-  des Hollows bis zum Schaden, **Klettern und Durchfallen**, Seelen, das HUD,
-  Tod und Respawn.
-- `tools/menu_test.gd` (24) läuft den Weg eines Spielers ab: navigieren,
-  CONTROLS öffnen, Spiel starten, pausieren, zurück zum Titel.
+  des Hollows bis zum Schaden, **Klettern und Durchfallen**, **Flakon und
+  Lagerfeuer-Rasten**, Seelen samt **Fallenlassen beim Tod**, das HUD, Tod und
+  Respawn am Checkpoint.
+- `tools/menu_test.gd` (34) läuft den Weg eines Spielers ab: navigieren,
+  CONTROLS und OPTIONS öffnen, Einstellungen ändern, Spiel starten,
+  pausieren, zurück zum Titel. Dazu ein Wächter, der **jeden** UI-Text gegen
+  den Zeichensatz prüft: eine fehlende Glyphe zeichnet die Bitmap-Schrift
+  lautlos als Leerzeichen.
 
 Die Level-Prüfung ist bewusst eine eigene Stufe: ein Vorsprung, auf den niemand
 springen kann, lässt **beide** Engine-Suiten fröhlich grün durchlaufen.
@@ -181,7 +220,9 @@ ashen-hollow/
 │   ├─ PauseMenu.gd       Esc-Menü; läuft weiter, während der Baum pausiert
 │   ├─ MenuList.gd        Menü-Einträge mit Schädel-Cursor (von beiden genutzt)
 │   ├─ PixelLabel.gd      Zeichnet Text mit der Bitmap-Schrift
-│   ├─ UiTheme.gd         Palette, Menü-Layout und Leisten-Geometrie an einem Ort
+│   ├─ UiTheme.gd         Palette, Menü-Layout, Panel- und Leisten-Geometrie
+│   ├─ Settings.gd        Optionen, gespeichert in user://settings.cfg
+│   ├─ Run.gd             Was einen Szenen-Reload überlebt: Checkpoint + Seelen
 │   ├─ Player.gd          Zustandsautomat, Ausdauer, i-Frames, Angriff
 │   ├─ Hollow.gd          Gegner-KI: verfolgen → ausholen → zustechen → erholen
 │   ├─ HUD.gd             Knochen-Leisten, Schaden-Geist, Seelen, „YOU DIED"
@@ -202,8 +243,8 @@ ashen-hollow/
 └─ tools/
     ├─ gen_art.py         >>> Der Pixelart-Generator (Quelle aller Sprites) <<<
     ├─ gen_level.py       >>> Der Level-Generator (+ Erreichbarkeits-Beweis) <<<
-    ├─ smoke_test.gd      Headless-Durchlauf des Kampf-Slice (63 Checks)
-    ├─ menu_test.gd       Headless-Durchlauf der Menüs (24 Checks)
+    ├─ smoke_test.gd      Headless-Durchlauf des Kampf-Slice (80 Checks)
+    ├─ menu_test.gd       Headless-Durchlauf der Menüs (34 Checks)
     ├─ run_tests.sh       Startet Import + beide Suiten in einem Rutsch
     ├─ screenshot.gd      Nimmt echte Bildschirmfotos auf (braucht Anzeige)
     ├─ shots/             Ebendiese Bildschirmfotos
@@ -242,11 +283,10 @@ die Engine setzt den Text daneben. Wer eins ändert, muss das andere mitziehen.
 
 ## Nächste Schritte
 
-1. **Lagerfeuer-Loop**: rasten = heilen + alle Gegner respawnen. Die zwei
-   Lagerfeuer stehen schon an den richtigen Stellen und warten nur auf die Logik.
-2. **Seelen fallen lassen**: beim Tod bleiben die Seelen liegen und lassen sich zurückholen.
-3. **Mehr Gegnertypen** und ein erster Boss mit mehreren Angriffsmustern.
-4. **Level-Design**: echte Tilemap mit Plattformen, Abkürzungen und Verzweigungen.
-5. **Sound**: Schwerthiebe, Treffer, Feuerknistern.
-6. **Optionen-Menü**: Lautstärke und Fenstergröße — die Menü-Bausteine
-   (`MenuList`, `PixelLabel`) stehen dafür schon bereit.
+1. **Mehr Gegnertypen** und ein erster Boss mit mehreren Angriffsmustern.
+2. **Sound**: Schwerthiebe, Treffer, Feuerknistern — ließe sich, passend zur
+   Pipeline, als WAV aus Python erzeugen.
+3. **Abkürzungen und Verzweigungen** im Level: Türen, die sich nur von einer
+   Seite öffnen — passend zur Inschrift am versiegelten Tor.
+4. **Speicherstand**: `Run.gd` hält den Fortschritt schon an einer Stelle
+   zusammen, das müsste nur noch auf Platte.

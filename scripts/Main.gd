@@ -7,6 +7,9 @@ const TW := LevelMap.TILE
 const S := "res://assets/sprites/"
 
 const RUNE_READ_RANGE := 26.0        # how close you must stand to read a stone
+const BONFIRE_RANGE := 28.0          # how close you must stand to rest
+const SOUL_PICKUP_RANGE := 20.0
+const SHAKE_DECAY := 7.0
 
 var level: Level
 var world_w := float(LevelMap.W * TW)
@@ -15,6 +18,11 @@ var floor_top := 0.0                 # y the player spawns standing on
 
 var _lights: Array = []
 var _runes: Array = []               # [{node, pos, text}]
+var _bonfires: Array = []            # world positions
+var _soul_orb: Node2D = null
+var _camera: Camera2D
+var _shake := 0.0
+var _sparks: CPUParticles2D
 var _t := 0.0
 var _area := ""
 var hud                     # HUD.gd instance (untyped: it has no class_name)
@@ -30,8 +38,11 @@ func _ready() -> void:
 	hud = _build_hud()
 	pause_menu = _build_pause_menu()
 	_spawn_entities()
+	_place_at_checkpoint()
+	_build_sparks()
 	_wire_hud()
 	_build_camera()
+	_spawn_soul_orb()
 
 
 # ------------------------------------------------------------------ input ----
@@ -45,6 +56,8 @@ func _setup_input() -> void:
 	_action("jump", [KEY_SPACE])
 	_action("attack", [KEY_J], MOUSE_BUTTON_LEFT)
 	_action("dodge", [KEY_K, KEY_SHIFT])
+	_action("heal", [KEY_Q])
+	_action("interact", [KEY_E])
 
 
 func _action(action_name: String, keys: Array, mouse: int = -1) -> void:
@@ -84,6 +97,7 @@ func _spawn_entities() -> void:
 			"hollow":
 				_spawn_hollow(foot)
 			"bonfire":
+				_bonfires.append(foot)
 				_bonfire(foot)
 			"torch":
 				_torch(Vector2((tx + 0.5) * TW, (ty + 0.5) * TW))
@@ -258,15 +272,94 @@ func _wire_hud() -> void:
 	player.health_changed.connect(hud.set_health)
 	player.stamina_changed.connect(hud.set_stamina)
 	player.souls_changed.connect(hud.set_souls)
+	player.souls_changed.connect(func(n: int) -> void: Run.souls = n)
+	player.flask_changed.connect(func(c: int, _m: int) -> void: Run.flask = c)
+	player.flask_changed.connect(hud.set_flask)
+	player.hit_landed.connect(_on_hit_landed)
 	player.died.connect(_on_player_died)
 	hud.set_health(player.health, Player.HEALTH_MAX)
 	hud.set_stamina(player.stamina, Player.STAMINA_MAX)
+	hud.set_souls(player.souls)
+	hud.set_flask(player.flask, Player.FLASK_MAX)
 
 
 func _on_player_died() -> void:
+	Run.drop(player.global_position, player.souls)
+	Run.flask = Player.FLASK_MAX          # the flask is refilled by dying, too
+	_add_shake(3.0)
 	hud.show_died()
 	var t := get_tree().create_timer(2.8)
 	t.timeout.connect(func(): get_tree().reload_current_scene())
+
+
+## Death reloads the scene, so the knight has to be put back at the bonfire he
+## last rested at rather than at the map's spawn tile.
+func _place_at_checkpoint() -> void:
+	if player == null or not Run.has_checkpoint:
+		return
+	player.global_position = Run.checkpoint
+	player.velocity = Vector2.ZERO
+	player.souls = Run.souls
+	player.flask = Run.flask
+	player.souls_changed.emit(player.souls)
+	player.flask_changed.emit(player.flask, Player.FLASK_MAX)
+
+
+## The souls you were carrying when you died, waiting where you fell.
+func _spawn_soul_orb() -> void:
+	if not Run.has_drop:
+		return
+	var a := AnimatedSprite2D.new()
+	var sf := SpriteFrames.new()
+	SpriteUtil.add_anim(sf, "glow", _tex("soul_orb.png"), [0, 1, 2, 3], 6.0, true, 11, 11)
+	a.sprite_frames = sf
+	a.animation = "glow"
+	a.centered = true
+	a.position = Run.drop_pos + Vector2(0, -10)
+	a.play("glow")
+	add_child(a)
+	_light(a, Vector2.ZERO, Color(0.62, 0.95, 0.92), 0.7, 0.35, 0.0)
+	_soul_orb = a
+
+
+func _build_sparks() -> void:
+	var p := CPUParticles2D.new()
+	p.emitting = false
+	p.one_shot = true
+	p.explosiveness = 1.0
+	p.amount = 10
+	p.lifetime = 0.34
+	p.local_coords = false
+	var dot := AtlasTexture.new()
+	dot.atlas = _tex("light_soft.png")
+	dot.region = Rect2(120, 120, 16, 16)
+	p.texture = dot
+	p.spread = 180.0
+	p.gravity = Vector2(0, 260)
+	p.initial_velocity_min = 40.0
+	p.initial_velocity_max = 110.0
+	p.scale_amount_min = 0.10
+	p.scale_amount_max = 0.24
+	var g := Gradient.new()
+	g.set_color(0, Color(1.0, 0.92, 0.72, 1.0))
+	g.set_color(1, Color(0.85, 0.20, 0.12, 0.0))
+	p.color_ramp = g
+	add_child(p)
+	_sparks = p
+
+
+## Sparks and a kick of the camera, so a landed blow reads as contact.
+func _on_hit_landed(at: Vector2) -> void:
+	if _sparks != null:
+		_sparks.position = at
+		_sparks.restart()
+		_sparks.emitting = true
+	_add_shake(1.6)
+
+
+func _add_shake(amount: float) -> void:
+	if Settings.screen_shake:
+		_shake = minf(4.0, _shake + amount)
 
 
 func _build_camera() -> void:
@@ -279,6 +372,7 @@ func _build_camera() -> void:
 	cam.limit_bottom = int(world_h)
 	player.add_child(cam)
 	cam.make_current()
+	_camera = cam
 
 
 func _process(delta: float) -> void:
@@ -288,9 +382,72 @@ func _process(delta: float) -> void:
 		var a: float = e["amp"]
 		n.energy = e["base"] * (1.0 + a * sin(_t * 7.0 + e["phase"])
 				+ a * 0.5 * sin(_t * 17.0 + e["phase"]))
+	_tick_shake(delta)
 	if player != null and is_instance_valid(player):
 		_track_area()
 		_track_runes()
+		_track_bonfire()
+		_track_soul_orb()
+
+
+func _tick_shake(delta: float) -> void:
+	if _camera == null:
+		return
+	if _shake <= 0.001:
+		_camera.offset = Vector2.ZERO
+		return
+	_shake = maxf(0.0, _shake - SHAKE_DECAY * delta)
+	# whole pixels only: a fractional camera offset makes the whole pixel-art
+	# scene shimmer instead of shaking
+	_camera.offset = Vector2(roundf(randf_range(-_shake, _shake)),
+			roundf(randf_range(-_shake, _shake)))
+
+
+## Resting is the whole structure of the game: it heals, refills the flask,
+## puts every hollow back, and makes this fire the place you respawn.
+func _track_bonfire() -> void:
+	var near := Vector2.INF
+	for pos in _bonfires:
+		if player.global_position.distance_to(pos) < BONFIRE_RANGE:
+			near = pos
+			break
+	if near == Vector2.INF:
+		hud.show_prompt("")
+		return
+	hud.show_prompt("E   REST")
+	if Input.is_action_just_pressed("interact") and player.state != Player.State.DEAD:
+		_rest_at(near)
+
+
+func _rest_at(pos: Vector2) -> void:
+	Run.rest_at(pos)
+	player.rest()
+	_respawn_hollows()
+	hud.show_prompt("")
+	hud.show_area("RESTED")
+
+
+## Every hollow comes back, exactly where the map put them.
+func _respawn_hollows() -> void:
+	for e in get_tree().get_nodes_in_group("enemy"):
+		if is_instance_valid(e):
+			e.queue_free()
+	for e in LevelMap.ENTITIES:
+		if e["kind"] != "hollow":
+			continue
+		var tx: int = e["x"]
+		var ty: int = e["y"]
+		_spawn_hollow(Vector2((tx + 0.5) * TW, float((ty + 1) * TW)))
+
+
+func _track_soul_orb() -> void:
+	if _soul_orb == null or not is_instance_valid(_soul_orb):
+		return
+	if player.global_position.distance_to(_soul_orb.position) > SOUL_PICKUP_RANGE:
+		return
+	player.add_souls(Run.collect())
+	_soul_orb.queue_free()
+	_soul_orb = null
 
 
 ## The map is far too big to hold in your head, so crossing into a new region

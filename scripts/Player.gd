@@ -7,6 +7,8 @@ extends CharacterBody2D
 signal health_changed(cur: float, maxv: float)
 signal stamina_changed(cur: float, maxv: float)
 signal souls_changed(amount: int)
+signal flask_changed(cur: int, maxv: int)
+signal hit_landed(at: Vector2)
 signal died
 
 # --- tuning ------------------------------------------------------------------
@@ -43,18 +45,28 @@ const ROLL_COST := 22.0
 const HURT_TIME := 0.28
 const INVULN_AFTER_HIT := 0.65
 
-enum State { IDLE, RUN, ATTACK, ROLL, HURT, DEAD, CLIMB }
+# The flask heals a lot but locks him in place for the better part of a second
+# and grants no i-frames — drinking in front of a winding-up hollow should be
+# the wrong call, not a free reset.
+const FLASK_MAX := 3
+const FLASK_HEAL := 45.0
+const DRINK_TIME := 0.75
+const DRINK_HEAL_AT := 0.45
+
+enum State { IDLE, RUN, ATTACK, ROLL, HURT, DEAD, CLIMB, DRINK }
 
 var state: State = State.IDLE
 var facing := 1                    # +1 right, -1 left
 var health := HEALTH_MAX
 var stamina := STAMINA_MAX
 var souls := 0
+var flask := FLASK_MAX
 
 var _t := 0.0                      # time inside the current state
 var _regen_block := 0.0
 var _invuln := 0.0
 var _hit_done := false
+var _drank := false
 var _drop_thru := 0.0              # >0 while falling through a one-way beam
 var _level: Node = null            # asked whether a ladder is under him
 
@@ -68,6 +80,7 @@ func _ready() -> void:
 	health_changed.emit(health, HEALTH_MAX)
 	stamina_changed.emit(stamina, STAMINA_MAX)
 	souls_changed.emit(souls)
+	flask_changed.emit(flask, FLASK_MAX)
 
 
 ## True where a ladder tile covers him — checked at the chest, not the feet, so
@@ -103,6 +116,8 @@ func _physics_process(delta: float) -> void:
 			_roll_state(delta)
 		State.CLIMB:
 			_climb_state(delta)
+		State.DRINK:
+			_drink_state(delta)
 		State.HURT:
 			_decelerate(delta, 420.0)
 			if _t >= HURT_TIME:
@@ -133,6 +148,10 @@ func _ground_state(delta: float) -> void:
 		_enter(State.ROLL)
 		return
 
+	if Input.is_action_just_pressed("heal") and flask > 0 and is_on_floor():
+		_enter(State.DRINK)
+		return
+
 	# up/down on a ladder takes hold of it
 	var vert := Input.get_axis("up", "down")
 	if vert != 0.0 and _on_ladder():
@@ -160,6 +179,28 @@ func _begin_drop_thru() -> void:
 	_drop_thru = DROP_THRU_TIME
 	set_collision_mask_value(BEAM_LAYER, false)
 	velocity.y = 40.0                 # a nudge, so he clears the beam at once
+
+
+func _drink_state(delta: float) -> void:
+	_decelerate(delta, 600.0)
+	if not _drank and _t >= DRINK_HEAL_AT:
+		_drank = true
+		flask -= 1
+		health = minf(HEALTH_MAX, health + FLASK_HEAL)
+		health_changed.emit(health, HEALTH_MAX)
+		flask_changed.emit(flask, FLASK_MAX)
+	if _t >= DRINK_TIME:
+		_enter(State.IDLE)
+
+
+## Sitting at a bonfire: full health, full flask.
+func rest() -> void:
+	health = HEALTH_MAX
+	stamina = STAMINA_MAX
+	flask = FLASK_MAX
+	health_changed.emit(health, HEALTH_MAX)
+	stamina_changed.emit(stamina, STAMINA_MAX)
+	flask_changed.emit(flask, FLASK_MAX)
 
 
 func _climb_state(_delta: float) -> void:
@@ -204,6 +245,7 @@ func _enter(next: State) -> void:
 	state = next
 	_t = 0.0
 	_hit_done = false
+	_drank = false
 	sprite.speed_scale = 1.0
 	match next:
 		State.IDLE:
@@ -216,6 +258,8 @@ func _enter(next: State) -> void:
 			sprite.play("roll")
 		State.CLIMB:
 			sprite.play("roll")   # the tucked frames read as a scramble
+		State.DRINK:
+			sprite.play("idle")
 		State.HURT:
 			sprite.play("idle")
 		State.DEAD:

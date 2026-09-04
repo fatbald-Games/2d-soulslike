@@ -80,6 +80,9 @@ func _process(_delta: float) -> bool:
 		124:
 			current_scene.player.stamina = 46.0
 			current_scene.player.stamina_changed.emit(46.0, 100.0)
+		126:
+			current_scene.player.flask = 2
+			current_scene.player.flask_changed.emit(2, Player.FLASK_MAX)
 		130:
 			_grab("03_hud")
 		134:
@@ -101,6 +104,11 @@ func _process(_delta: float) -> bool:
 		230:
 			_grab("07_ramparts")
 		234:
+			# stand at the gate bonfire so the REST prompt shows
+			_warp(9, 45)
+		258:
+			_grab("09_bonfire")
+		262:
 			print("done.")
 			quit(0)
 			return true
