@@ -20,18 +20,37 @@ from collections import deque
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "scripts", "LevelMap.gd")
 
-W, H = 192, 64
+W, H = 384, 128
 TILE = 16
 
-SOLID, AIR, PLAT, LADDER = '#', '.', '=', 'H'
-PASSABLE = (AIR, PLAT, LADDER)
-FOOTING = (SOLID, PLAT)
+SOLID, AIR, PLAT, LADDER, WATER = '#', '.', '=', 'H', 'w'
+## Rock with open space nowhere near it. Collides exactly like SOLID, but the
+## engine skips drawing it — at 49152 tiles, working that out per frame in
+## GDScript is a load-time stall, and it never changes, so it is decided here.
+BURIED = 'X'
+PASSABLE = (AIR, PLAT, LADDER, WATER)
+FOOTING = (SOLID, PLAT, BURIED)
+ROCK_DEPTH = 2                      # how deep rock is still drawn near an opening
 
 # --- player movement envelope, derived from scripts/Player.gd ----------------
 # GRAVITY 900, JUMP_VELOCITY -270, SPEED 78  ->  apex 40.5px (2.5 tiles), and
 # while the knight is 2 tiles up he has only carried ~13..34px sideways. So a
 # two-tile step is only reachable if it is at most 2 tiles across; a one-tile
 # step gets the full 3. These numbers are what validate() enforces.
+## The colour the torches burn in each region. Paired with the stone palettes in
+## tools/gen_art.py (THEMES) — the same room lit differently reads as a
+## different place, so these carry as much of the theming as the tiles do.
+THEME_LIGHT = {
+    "gate":      (1.00, 0.70, 0.40),
+    "descent":   (1.00, 0.66, 0.36),
+    "ossuary":   (1.00, 0.86, 0.62),
+    "cistern":   (0.55, 0.90, 0.95),
+    "rootworks": (0.62, 1.00, 0.66),
+    "forge":     (1.00, 0.52, 0.20),
+    "vault":     (0.70, 0.86, 1.00),
+    "ramparts":  (0.72, 0.82, 1.00),
+}
+
 MAX_RISE = 2
 REACH_AT_RISE = {0: 3, 1: 3, 2: 2}
 FALL_DRIFT = 3
@@ -72,6 +91,11 @@ class Level:
                 if 0 <= xx < W and 0 <= y < H:
                     self.g[y][xx] = LADDER
 
+    def water(self, x, y):
+        """Standing water: drawn over the floor, walked straight through."""
+        if 0 <= x < W and 0 <= y < H and self.g[y][x] == AIR:
+            self.g[y][x] = WATER
+
     def at(self, x, y):
         if 0 <= x < W and 0 <= y < H:
             return self.g[y][x]
@@ -87,90 +111,165 @@ class Level:
         for x in range(x0, x1 + 1, step):
             self.ent("torch", x, y)
 
-    def area(self, name, x, y, w, h):
-        self.areas.append({"name": name, "x": x, "y": y, "w": w, "h": h})
+    def area(self, name, x, y, w, h, theme):
+        self.areas.append({"name": name, "x": x, "y": y, "w": w, "h": h,
+                           "theme": theme})
 
 
 def build():
     L = Level()
 
     # ================================================================ carve ===
-    # Everything is cut first, so later slabs/ladders cannot be erased by a
-    # room that happens to be carved afterwards.
-    L.carve(3, 39, 51, 45)          # the gate hall, floor at y=46
-    L.carve(52, 39, 66, 57)         # the descent shaft, gate level -> ossuary
-    L.carve(52, 51, 188, 57)        # the ossuary, one long gallery, floor y=58
-    L.carve(78, 44, 134, 57)        # its tall central hall
-    L.carve(114, 58, 132, 61)       # the cinder well, sunk below the ossuary
-    L.carve(172, 29, 184, 50)       # the shaft back up the east side
-    L.carve(96, 21, 184, 27)        # the ramparts, floor y=28
+    # One continuous route: west to east and steadily downward, then back up the
+    # east side and west again along the ramparts. Everything is cut first, so a
+    # later slab or ladder cannot be erased by a room carved afterwards.
+    L.carve(3, 40, 57, 46)          # THE ASHEN GATE          floor 47
+    L.carve(58, 40, 78, 76)         # THE LONG DESCENT (shaft down to the bones)
+    L.carve(58, 70, 168, 76)        # THE OSSUARY gallery      floor 77
+    L.carve(92, 58, 152, 76)        #   its tall hall, full of beams
+    L.carve(156, 70, 174, 92)       #   shaft down to the water
+    L.carve(168, 84, 252, 92)       # THE FLOODED CISTERN      floor 93
+    L.carve(240, 84, 258, 108)      #   shaft down into the roots
+    L.carve(252, 100, 312, 108)     # THE ROOTWORKS            floor 109
+    L.carve(296, 100, 312, 124)     #   shaft down to the fires
+    L.carve(300, 116, 382, 124)     # THE EMBER FORGE          floor 125
+
+    # THE FROZEN VAULT: the way back up is a stair of chambers, not one endless
+    # ladder — 80 tiles of unbroken climbing is a held key, not a level.
+    L.carve(340, 102, 382, 114)     # V1  floor 115
+    L.carve(316, 86, 358, 100)      # V2  floor 101
+    L.carve(340, 70, 382, 84)       # V3  floor 85
+    L.carve(316, 54, 358, 68)       # V4  floor 69
+    L.carve(340, 38, 382, 52)       # V5  floor 53
+    L.carve(316, 28, 358, 36)       # V6  floor 37
+
+    L.carve(90, 19, 339, 26)        # THE RAMPARTS             floor 27
 
     # ================================================================ slabs ===
-    L.slab(24, 28, 45)              # a knee-high step in the gate hall
-    L.slab(36, 42, 44, 45)          # and a two-tile one: this needs a jump
-    # Ledges down the shaft. They start at x=54 so they touch the ladder at
-    # x=52/53 -- pulled any further right and they are islands nobody can step
-    # onto, which is exactly what validate() caught.
-    L.slab(54, 66, 50)
-    L.slab(54, 62, 54)
-    L.slab(172, 178, 44)            # and the same going back up the east shaft
-    L.slab(178, 184, 38)
-    L.slab(172, 180, 33)            # reaches x=180 so it meets the ladder at 181
+    L.slab(24, 28, 46)              # a knee-high step in the gate hall
+    L.slab(36, 42, 45, 46)          # and a two-tile one: this needs a jump
+    # Ledges down the descent. They start at x=60 so they touch the ladder at
+    # x=58/59 — pulled further right they are islands nobody can step onto.
+    L.slab(60, 78, 52)
+    L.slab(60, 70, 60)
+    L.slab(60, 78, 68)
 
-    # Stepped beams climbing the tall hall. Each sits two rows above the last
-    # and OVERLAPS it horizontally -- at two tiles of rise the knight has only
-    # ~2 tiles of sideways reach, so a clean gap here would be unjumpable.
-    for i, (x0, x1, y) in enumerate([
-            (82, 92, 56), (90, 100, 54), (98, 108, 52),
-            (106, 116, 50), (114, 124, 48), (122, 132, 46)]):
+    # Stepped beams climbing the ossuary's tall hall. Each sits two rows above
+    # the last and OVERLAPS it — at two tiles of rise the knight has only ~2
+    # tiles of sideways reach, so a clean gap here would be unjumpable.
+    # floor is 77, so the first beam sits at 75 (stand 74, two rows up) and each
+    # one after it steps another two — three rows would be unjumpable
+    for x0, x1, y in [(96, 106, 75), (104, 114, 73), (112, 122, 71),
+                      (120, 130, 69), (128, 138, 67), (136, 148, 65)]:
         L.plat(x0, x1, y)
 
+    # Cistern: stepping stones over the water, and a sunken basin.
+    for x0, x1, y in [(184, 196, 91), (194, 206, 89), (204, 216, 91),
+                      (226, 238, 91)]:
+        L.plat(x0, x1, y)
+
+    # Rootworks: shelves of fungus to climb between.
+    for x0, x1, y in [(262, 272, 107), (270, 280, 105), (286, 296, 107)]:
+        L.plat(x0, x1, y)
+
+    # Forge: catwalks over the floor.
+    for x0, x1, y in [(310, 324, 123), (320, 334, 121), (344, 358, 123)]:
+        L.plat(x0, x1, y)
+
+    # Ramparts: the odd broken section, so the long walk is not flat.
+    L.slab(150, 156, 25, 26)
+    L.slab(232, 238, 25, 26)
+
     # ============================================================== ladders ===
-    L.ladder(52, 45, 57)            # gate hall <-> ossuary floor
-    L.ladder(181, 27, 57)           # ossuary <-> ramparts (punches y=28)
-    L.ladder(115, 57, 61)           # out of the cinder well
+    L.ladder(58, 46, 76)            # gate hall  <-> ossuary floor
+    L.ladder(158, 76, 92)           # ossuary    <-> cistern
+    L.ladder(242, 92, 108)          # cistern    <-> rootworks
+    L.ladder(298, 108, 124)         # rootworks  <-> forge
+    L.ladder(370, 114, 124)         # forge      <-> vault V1
+    L.ladder(346, 100, 114)         # V1 <-> V2
+    L.ladder(350, 84, 100)          # V2 <-> V3
+    L.ladder(346, 68, 84)           # V3 <-> V4
+    L.ladder(350, 52, 68)           # V4 <-> V5
+    L.ladder(346, 36, 52)           # V5 <-> V6
+    L.ladder(330, 26, 36)           # V6 <-> the ramparts
+
+    # ================================================================ water ===
+    # Standing water on the cistern floor. Passable — you wade through it.
+    for x in range(168, 252):
+        L.water(x, 92)
 
     # ================================================================ areas ===
-    L.area("THE ASHEN GATE", 0, 36, 52, 12)
-    L.area("THE LONG DESCENT", 52, 36, 16, 22)
-    L.area("THE OSSUARY", 68, 42, 120, 16)
-    L.area("THE CINDER WELL", 112, 58, 22, 6)
-    L.area("THE RAMPARTS", 96, 20, 92, 9)
+    # Disjoint rects: area_at() returns the first match, so overlapping regions
+    # would make the banner depend on declaration order.
+    L.area("THE ASHEN GATE", 0, 33, 58, 17, "gate")
+    L.area("THE LONG DESCENT", 58, 33, 20, 45, "descent")
+    L.area("THE OSSUARY", 78, 55, 90, 24, "ossuary")
+    L.area("THE FLOODED CISTERN", 168, 80, 84, 15, "cistern")
+    L.area("THE ROOTWORKS", 252, 96, 62, 15, "rootworks")
+    L.area("THE EMBER FORGE", 300, 111, 84, 17, "forge")
+    L.area("THE FROZEN VAULT", 314, 28, 70, 83, "vault")
+    L.area("THE RAMPARTS", 90, 16, 250, 12, "ramparts")
 
     # =============================================================== people ===
-    L.ent("player", 6, 45)
-    L.ent("bonfire", 9, 45)
-    L.ent("bonfire", 124, 61)
+    L.ent("player", 6, 46)
+    L.ent("bonfire", 9, 46)         # the gate
+    L.ent("bonfire", 120, 76)       # the ossuary
+    L.ent("bonfire", 350, 124)      # the forge
 
-    for x, y in [(40, 43), (60, 49), (74, 57), (88, 57), (108, 57),
-                 (100, 51), (140, 57), (152, 57), (168, 57),
-                 (122, 61), (128, 61), (120, 27), (150, 27)]:
+    for x, y in [(40, 44), (62, 51), (68, 59), (74, 76), (86, 76), (100, 76),
+                 (116, 70), (130, 76), (146, 76), (150, 76),
+                 (176, 92), (200, 92), (222, 92), (234, 92),
+                 (258, 108), (276, 104), (286, 108), (272, 108),
+                 (306, 124), (326, 124), (344, 124), (364, 124),
+                 (352, 114), (330, 100), (360, 84), (330, 68), (360, 52),
+                 (120, 26), (180, 26), (250, 26), (300, 26)]:
         L.ent("hollow", x, y)
 
     # ============================================================== lighting ==
-    L.torches(8, 50, 41, 10)
-    for x, y in [(55, 42), (64, 46), (56, 52)]:
+    L.torches(8, 52, 42, 10)                                   # gate
+    for x, y in [(62, 43), (74, 48), (64, 56), (72, 64)]:       # descent
         L.ent("torch", x, y)
-    L.torches(80, 132, 46, 10)
-    L.torches(138, 186, 53, 10)
-    L.torches(100, 182, 23, 11)
-    for x, y in [(117, 59), (130, 59)]:
-        L.ent("torch", x, y)
+    L.torches(80, 166, 73, 11)                                 # ossuary gallery
+    L.torches(96, 148, 61, 12)                                 #   tall hall
+    L.torches(172, 250, 87, 11)                                # cistern
+    L.torches(256, 312, 103, 11)                               # rootworks
+    L.torches(304, 380, 119, 11)                               # forge
+    L.torches(94, 336, 21, 14)                                 # ramparts
+    for x, y in [(344, 106), (322, 90), (346, 74), (322, 58), (346, 42), (322, 31)]:
+        L.ent("torch", x, y)                                    # vault chambers
+
+    # Region flavour: fungus lights the roots, braziers roar in the forge.
+    for x in range(256, 295, 7):        # past 295 the floor is the forge shaft
+        L.ent("mushroom", x, 108)
+    for x, y in [(268, 106), (276, 104), (290, 106)]:
+        L.ent("mushroom", x, y)
+    for x in range(306, 380, 12):
+        L.ent("brazier", x, 124)
 
     # ================================================================= lore ===
-    # Environmental storytelling only -- no cutscenes, no NPCs. Each stone says
+    # Environmental storytelling only — no cutscenes, no NPCs. Each stone says
     # something about why the keep is empty, and they read in the order you
     # physically reach them.
-    L.ent("rune", 18, 45, text="REST HERE. THE DARK BELOW DOES NOT.")
-    L.ent("rune", 46, 45,
+    L.ent("rune", 18, 46, text="REST HERE. THE DARK BELOW DOES NOT.")
+    L.ent("rune", 46, 46,
           text="WE SEALED THE KEEP FROM WITHIN. THE HOLLOWS WERE ALREADY IN IT.")
-    L.ent("rune", 58, 53, text="COUNT THE RUNGS. THERE ARE FEWER GOING UP.")
-    L.ent("rune", 86, 57,
+    L.ent("rune", 62, 59, text="COUNT THE RUNGS. THERE ARE FEWER GOING UP.")
+    L.ent("rune", 92, 76,
           text="THEY LAID THE DEAD IN ROWS UNTIL THERE WERE NO MORE ROWS.")
-    L.ent("rune", 128, 45, text="CLIMB HIGH ENOUGH AND THE ASH LOOKS LIKE SNOW.")
-    L.ent("rune", 127, 61, text="THE SECOND FIRE STILL BURNS. NO ONE LIT IT.")
-    L.ent("rune", 160, 57, text="EVERY DOOR OUT OF HERE OPENS INWARD.")
-    L.ent("rune", 99, 27,
+    L.ent("rune", 144, 64, text="CLIMB HIGH ENOUGH AND THE ASH LOOKS LIKE SNOW.")
+    L.ent("rune", 190, 92,
+          text="THE CISTERN FED THE KEEP. NOW IT ONLY KEEPS THINGS.")
+    L.ent("rune", 234, 92, text="DO NOT DRINK. WE LEARNED THAT ONE TOGETHER.")
+    L.ent("rune", 266, 108,
+          text="THE ROOTS CAME UP THROUGH THE FLOOR AND NOBODY PULLED THEM OUT.")
+    L.ent("rune", 280, 108, text="SOMETHING DOWN HERE STILL GROWS. NOTHING ELSE DOES.")
+    L.ent("rune", 320, 124,
+          text="THE FIRES WERE NEVER BANKED. WHOEVER TENDS THEM HAS NOT STOPPED.")
+    L.ent("rune", 370, 124, text="EVERY DOOR OUT OF HERE OPENS INWARD.")
+    L.ent("rune", 356, 84, text="THE COLD KEEPS THEM. THAT IS ALL IT IS FOR.")
+    L.ent("rune", 358, 52, text="I COUNTED THE FLOORS ON THE WAY DOWN. I GET A DIFFERENT NUMBER NOW.")
+    L.ent("rune", 300, 26, text="FROM HERE YOU CAN SEE HOW FAR YOU FELL.")
+    L.ent("rune", 96, 26,
           text="THE GATE AHEAD OPENS FROM THE OTHER SIDE. NOTHING ON THIS SIDE DOES.")
     return L
 
@@ -309,6 +408,29 @@ def merge_rects(cells):
     return rects
 
 
+def bury(L):
+    """Replace rock that no opening comes within ROCK_DEPTH of with BURIED, so
+    the engine can skip drawing it. Runs after validate(), which therefore only
+    ever sees plain SOLID."""
+    buried = 0
+    for y in range(H):
+        for x in range(W):
+            if L.g[y][x] != SOLID:
+                continue
+            exposed = False
+            for dy in range(-ROCK_DEPTH, ROCK_DEPTH + 1):
+                for dx in range(-ROCK_DEPTH, ROCK_DEPTH + 1):
+                    if L.at(x + dx, y + dy) not in (SOLID, BURIED):
+                        exposed = True
+                        break
+                if exposed:
+                    break
+            if not exposed:
+                L.g[y][x] = BURIED
+                buried += 1
+    return buried
+
+
 def emit(L, solids, plats):
     q = lambda s: '"%s"' % s.replace('\\', '\\\\').replace('"', '\\"')
     out = []
@@ -317,7 +439,8 @@ def emit(L, solids, plats):
     a("extends RefCounted")
     a("## GENERATED by tools/gen_level.py -- do not edit by hand.")
     a("##")
-    a("## '#' solid  '.' open  '=' one-way beam  'H' ladder")
+    a("## '#' solid   'X' solid but buried (never drawn)   '.' open")
+    a("## '=' one-way beam   'H' ladder   'w' water")
     a("")
     a("const W := %d" % W)
     a("const H := %d" % H)
@@ -341,8 +464,11 @@ def emit(L, solids, plats):
     a("")
     a("const AREAS := [")
     for ar in L.areas:
-        a('\t{"name": %s, "x": %d, "y": %d, "w": %d, "h": %d},'
-          % (q(ar["name"]), ar["x"], ar["y"], ar["w"], ar["h"]))
+        lit = THEME_LIGHT[ar["theme"]]
+        a('\t{"name": %s, "x": %d, "y": %d, "w": %d, "h": %d, '
+          '"theme": %s, "light": [%.3f, %.3f, %.3f]},'
+          % (q(ar["name"]), ar["x"], ar["y"], ar["w"], ar["h"],
+             q(ar["theme"]), lit[0], lit[1], lit[2]))
     a("]")
     a("")
     a("const ENTITIES := [")
@@ -375,6 +501,8 @@ def main():
             print("   x %s" % p)
         sys.exit(1)
 
+    buried = bury(L)
+    print("  %d rock tiles buried (never drawn)" % buried)
     emit(L, solids, plats)
     print("  wrote scripts/LevelMap.gd")
     print("Done.")

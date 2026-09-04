@@ -101,6 +101,12 @@ func _spawn_entities() -> void:
 				_bonfire(foot)
 			"torch":
 				_torch(Vector2((tx + 0.5) * TW, (ty + 0.5) * TW))
+			"mushroom":
+				_glow_prop("mushroom.png", 7, 7, foot + Vector2(0, -4),
+						Color(0.52, 1.0, 0.60), 0.85, 0.5)
+			"brazier":
+				_glow_prop("brazier.png", 9, 9, foot + Vector2(0, -5),
+						Color(1.0, 0.52, 0.20), 1.5, 0.85)
 			"rune":
 				_rune(foot, e["text"])
 
@@ -120,9 +126,18 @@ func _bonfire(foot: Vector2) -> void:
 	_light(self, foot + Vector2(0, -14), Color(1.0, 0.72, 0.42), 1.55, 0.95, 0.13)
 
 
+## Torches take the colour of the region they burn in — cold blue stone under
+## warm orange light still reads as the room you just left.
 func _torch(pos: Vector2) -> void:
 	_anim_prop("torch.png", 8, 10, [0, 1], 7.0, pos)
-	_light(self, pos + Vector2(0, 4), Color(1.0, 0.70, 0.40), 1.35, 1.05, 0.18)
+	_light(self, pos + Vector2(0, 4), level.light_at(pos), 1.35, 1.05, 0.18)
+
+
+## A small animated prop that casts its own light: glowing fungus, forge fires.
+func _glow_prop(sheet: String, fw: int, fh: int, pos: Vector2,
+		col: Color, energy: float, tscale: float) -> void:
+	_anim_prop(sheet, fw, fh, [0, 1], 3.5, pos)
+	_light(self, pos, col, energy, tscale, 0.22)
 
 
 ## An inscribed stone. It lights up and shows its line when you stand on it —

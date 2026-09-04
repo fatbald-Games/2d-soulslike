@@ -185,6 +185,172 @@ def stone_floor(seed=1):
     return img
 
 
+# ========================================================== THEMED TILES ======
+# Each region gets its own stone. At 16x16 in a dark palette the thing that
+# actually reads as "somewhere else" is the COLOUR RAMP plus one signature
+# speckle — piling on extra detail at this size just turns into noise.
+#
+# The matching torch colour lives in tools/gen_level.py (THEME_LIGHT) — that is
+# level data, not art. It is half the effect either way: cold blue stone lit
+# warm orange still reads as the same room you just left.
+
+THEMES = {
+    "gate": {
+        "ramp": [(24, 22, 32), (40, 39, 54), (58, 56, 78), (82, 80, 106)],
+        "detail": "moss"},
+    "descent": {
+        "ramp": [(18, 18, 28), (32, 34, 48), (48, 50, 68), (68, 72, 94)],
+        "detail": "none"},
+    "ossuary": {
+        "ramp": [(34, 31, 27), (54, 50, 43), (76, 71, 60), (104, 98, 84)],
+        "detail": "bone"},
+    "cistern": {
+        "ramp": [(16, 26, 30), (26, 44, 50), (38, 64, 70), (56, 90, 96)],
+        "detail": "algae"},
+    "rootworks": {
+        "ramp": [(24, 18, 30), (40, 30, 48), (56, 44, 66), (78, 62, 88)],
+        "detail": "spore"},
+    "forge": {
+        "ramp": [(32, 20, 16), (54, 32, 24), (78, 46, 32), (106, 62, 40)],
+        "detail": "ember"},
+    "vault": {
+        "ramp": [(28, 34, 44), (46, 56, 72), (68, 82, 102), (96, 116, 140)],
+        "detail": "ice"},
+    "ramparts": {
+        "ramp": [(22, 24, 34), (36, 40, 54), (52, 58, 76), (74, 82, 104)],
+        "detail": "none"},
+}
+
+DETAIL_COLOURS = {
+    "moss": (46, 62, 50), "bone": (150, 143, 124), "algae": (44, 96, 78),
+    "spore": (110, 176, 104), "ember": (198, 88, 36), "ice": (168, 200, 224),
+}
+
+
+def _rgba(c):
+    return (c[0], c[1], c[2], 255)
+
+
+def _speckle(px, rng, kind, count, w=16, h=16):
+    """The one flourish that names a region: moss, bone chips, algae, spores,
+    ember cracks or frost."""
+    if kind == "none":
+        return
+    col = _rgba(DETAIL_COLOURS[kind])
+    for _ in range(count):
+        x, y = rng.randint(1, w - 2), rng.randint(1, h - 2)
+        px[x, y] = col
+        if kind == "ember":                    # cracks run downward
+            px[x, min(h - 1, y + 1)] = _rgba((132, 48, 20))
+        elif kind == "bone":                   # chips catch the light on top
+            px[x, max(0, y - 1)] = _rgba((92, 86, 74))
+        elif kind == "spore":                  # a bright core inside a halo
+            px[min(w - 1, x + 1), y] = _rgba((60, 108, 64))
+        elif kind == "ice":
+            px[min(w - 1, x + 1), min(h - 1, y + 1)] = _rgba((116, 150, 178))
+
+
+def themed_floor(theme, seed):
+    t = THEMES[theme]
+    r = t["ramp"]
+    rng = random.Random(seed)
+    img = Image.new("RGBA", (16, 16), _rgba(r[1]))
+    px = img.load()
+    shades = [_rgba(r[0]), _rgba(r[1]), _rgba(r[1]), _rgba(r[2])]
+    for y in range(16):
+        for x in range(16):
+            px[x, y] = rng.choice(shades)
+    for x in range(16):                        # flagstone seams
+        px[x, 0] = _rgba(r[0])
+        px[x, 8] = _rgba(r[0])
+    for y in range(16):
+        px[0, y] = _rgba(r[0])
+        px[8, y] = _rgba(r[0])
+    for _ in range(10):
+        px[rng.randint(1, 15), rng.randint(1, 15)] = _rgba(r[2])
+    _speckle(px, rng, t["detail"], 5)
+    return img
+
+
+def themed_wall(theme, seed):
+    t = THEMES[theme]
+    r = t["ramp"]
+    rng = random.Random(seed)
+    dark = _rgba((max(0, r[0][0] - 6), max(0, r[0][1] - 6), max(0, r[0][2] - 8)))
+    img = Image.new("RGBA", (16, 16), _rgba(r[0]))
+    px = img.load()
+    base = [_rgba(r[0]), _rgba(r[1]), _rgba(r[1])]
+    for y in range(16):
+        for x in range(16):
+            px[x, y] = rng.choice(base)
+    for y in (0, 5, 10, 15):                   # brick courses
+        for x in range(16):
+            px[x, y] = dark
+    for band, y in enumerate((2, 7, 12)):      # staggered head joints
+        off = 0 if band % 2 == 0 else 8
+        for vx in (off % 16, (off + 8) % 16):
+            for yy in range(y - 2, y + 3):
+                if 0 <= yy < 16:
+                    px[vx, yy] = dark
+    for y in (1, 6, 11):                       # lit top of each course
+        for x in range(16):
+            if px[x, y] != dark:
+                px[x, y] = _rgba(r[2])
+    _speckle(px, rng, t["detail"], 3)
+    return img
+
+
+def water_tile():
+    """Standing water in the cistern: you wade through it, so it is drawn over
+    the floor rather than replacing it, and it never collides."""
+    img = Image.new("RGBA", (16, 16), T)
+    px = img.load()
+    for y in range(16):
+        for x in range(16):
+            px[x, y] = (30, 74, 92, 118)
+    for x in range(16):
+        px[x, 0] = (96, 168, 180, 190)         # the surface catches the light
+        px[x, 1] = (52, 108, 126, 150)
+    for x in range(0, 16, 5):
+        px[x, 3] = (70, 132, 150, 140)
+    return img
+
+
+def mushroom_frames():
+    """Glowing caps in the rootworks — the only light source down there that is
+    not a torch."""
+    grid = [
+        "..ooo..",
+        ".oZZZo.",
+        "oZZZZZo",
+        ".oZZZo.",
+        "..oIo..",
+        "..oIo..",
+        "..ooo..",
+    ]
+    dim = [r.replace('Z', 'n') for r in grid]
+    return [grid_to_img(grid, UIPAL), grid_to_img(dim, UIPAL)]
+
+
+def brazier_frames():
+    """An iron fire-basket for the forge. Burns, but you cannot rest at it."""
+    frames = []
+    for phase in (0, 1):
+        rows = [
+            "...aya..." if phase == 0 else "..ayya...",
+            "..aRya..." if phase == 0 else "..aRRa...",
+            ".aRRRa..." if phase == 0 else ".aRRya...",
+            "ooooooooo",
+            "odddddddo",
+            ".od...do.",
+            "..o...o..",
+            "..o...o..",
+            ".ooo.ooo.",
+        ]
+        frames.append(grid_to_img(rows, PAL))
+    return frames
+
+
 def beam_tile():
     """A one-way beam: bone-pale plank across the top of the tile, hollow below
     so you can see it is something you stand ON rather than a wall."""
@@ -1390,6 +1556,14 @@ def main():
     save(hsheet(tf), "torch.png")
 
     save(soft_light(), "light_soft.png")
+
+    # --- one stone set per region ---
+    for name in THEMES:
+        save(themed_floor(name, 11), "tile_floor_%s.png" % name)
+        save(themed_wall(name, 13), "tile_wall_%s.png" % name)
+    save(water_tile(), "tile_water.png")
+    save(hsheet(mushroom_frames()), "mushroom.png")
+    save(hsheet(brazier_frames()), "brazier.png")
 
     # --- traversal tiles + the inscribed stones ---
     save(beam_tile(), "tile_beam.png")

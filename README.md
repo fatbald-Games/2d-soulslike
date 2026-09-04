@@ -3,7 +3,8 @@
 Ein 2D-Soulslike in düsterer Retro-Pixelgrafik. **Engine: Godot 4.x.**
 
 Stand: **spielbarer Vertikal-Slice mit vollem Souls-Kreislauf.** Ein Kerker aus
-fünf Bereichen über acht Bildschirme, mit Leitern, Vorsprüngen und Balken;
+acht thematisch eigenständigen Bereichen über sechzehn Bildschirme, mit Leitern,
+Vorsprüngen und Balken;
 Lagerfeuer als Checkpoints, Heiltrank und Seelen, die beim Tod liegen bleiben;
 Titelbildschirm, Options- und Pause-Menü, Knochen-HUD; Angriff, Ausweichrolle
 mit i-Frames, Ausdauer-Haushalt und ein Gegner mit telegrafiertem Angriff.
@@ -68,23 +69,34 @@ code-generiert (siehe Pipeline unten):
 
 ## Die Welt
 
-Der Kerker ist **192 × 64 Kacheln (3072 × 1024 px)** — acht Bildschirme breit,
-knapp fünf hoch, rund vierzehnmal so viel Fläche wie der alte Korridor. Man
-bewegt sich nicht mehr nur links/rechts, sondern über **Leitern, Vorsprünge und
-Holzbalken** auch hoch und runter.
+Der Kerker ist **384 × 128 Kacheln (6144 × 2048 px)** — sechzehn Bildschirme
+breit, gut neun hoch: **viermal** so viel Fläche wie die vorige Fassung und rund
+**fünfundfünfzigmal** so viel wie der flache Korridor, mit dem das Projekt
+anfing. Man bewegt sich über **Leitern, Vorsprünge und Holzbalken** frei nach
+oben und unten.
 
-Fünf Bereiche, die als zusammenhängender Weg gedacht sind — man steigt hinab,
-läuft nach Osten durch und klettert auf der anderen Seite wieder hoch:
+**Acht Bereiche**, jeder mit eigenem Gestein und eigener Lichtfarbe. Sie bilden
+einen durchgehenden Weg: nach Osten und stetig abwärts, dann auf der Ostseite
+wieder hinauf und über den Wehrgang zurück nach Westen.
 
-| Bereich | Was er ist |
-|---|---|
-| **THE ASHEN GATE** | Startsims mit Lagerfeuer, zwei Stufen als Sprung-Tutorial |
-| **THE LONG DESCENT** | Schacht nach unten: eine lange Leiter, versetzte Vorsprünge |
-| **THE OSSUARY** | Die lange Galerie unten, mit einer hohen Halle voller Balken |
-| **THE CINDER WELL** | Grube unter der Galerie, zweites Lagerfeuer |
-| **THE RAMPARTS** | Hoher Wehrgang zurück nach Westen, endet an einem versiegelten Tor |
+| Bereich | Thema | Was er ist |
+|---|---|---|
+| **THE ASHEN GATE** | grauer Stein, warmes Licht | Startsims mit Lagerfeuer, zwei Stufen als Sprung-Tutorial |
+| **THE LONG DESCENT** | dunkler, kälterer Stein | Schacht nach unten: lange Leiter, versetzte Vorsprünge |
+| **THE OSSUARY** | Knochenbraun, Knochensplitter | Lange Galerie mit hoher Halle voller Balken, zweites Lagerfeuer |
+| **THE FLOODED CISTERN** | Blaugrün, Algen, kaltes Licht | Geflutete Halle, Trittsteine über dem Wasser |
+| **THE ROOTWORKS** | Violett-Grün, Sporen | Wurzelwerk, von **leuchtenden Pilzen** beleuchtet statt von Fackeln |
+| **THE EMBER FORGE** | Heißes Eisenrot, Glutrisse | Tiefster Punkt: Feuerkörbe, Laufstege, drittes Lagerfeuer |
+| **THE FROZEN VAULT** | Blasses Eisblau | Der Rückweg nach oben: sechs Kammern, je eine kurze Leiter |
+| **THE RAMPARTS** | Kaltes Blaugrau | Hoher Wehrgang zurück nach Westen, endet am versiegelten Tor |
 
-Beim Betreten blendet der Name des Bereichs auf. **Acht Inschriften** liegen auf
+Das Thema steckt in **zwei** Dingen, nicht nur in der Farbe der Kacheln: jeder
+Bereich hat eine eigene Steinpalette *und* eine eigene Fackelfarbe. Kaltblauer
+Stein unter warmorangem Licht liest sich sonst wie der Raum, den man gerade
+verlassen hat. Die Paletten stehen in `THEMES` (`gen_art.py`), die Lichtfarben
+in `THEME_LIGHT` (`gen_level.py`) — Kunst und Leveldaten getrennt.
+
+Beim Betreten blendet der Name des Bereichs auf. **Fünfzehn Inschriften** liegen auf
 dem Weg — tritt man darauf, leuchten sie und zeigen ihre Zeile. Das ist die
 ganze Story: keine Zwischensequenzen, keine NPCs. Sie erzählen in der
 Reihenfolge, in der man sie körperlich erreicht, warum die Feste leer ist.
@@ -101,8 +113,13 @@ Höhe hat der Ritter erst ~13–34 px zur Seite zurückgelegt. Ein Absatz zwei
 Kacheln hoch **und** drei weit ist damit unerreichbar, was man einem Level von
 dieser Größe nicht ansieht. Deshalb beweist der Generator per Breitensuche über
 alle Steh-Kacheln, dass jeder Gegner, jedes Lagerfeuer und jede Inschrift vom
-Startpunkt aus erreichbar ist, und bricht sonst ab. Genau so sind beim Bauen
-drei tote Vorsprünge aufgefallen, die zu weit von ihrer Leiter entfernt lagen.
+Startpunkt aus erreichbar ist, und bricht sonst ab.
+
+Beim Vergrößern auf acht Bereiche hat er sofort etwas gefangen, das man einer
+Karte dieser Größe nicht ansieht: **jede** der vier Balken-Ketten lag drei
+Reihen über ihrem Boden statt zwei und war damit unspringbar — dazu ein Dutzend
+Gegner und Inschriften, die über Schächten schwebten, wo gar kein Boden ist.
+Aktuell: 1121 von 1121 Steh-Kacheln erreichbar.
 
 Die Physik-Konstanten stehen deshalb an **zwei** Stellen im Gleichklang:
 `JUMP_VELOCITY` in `Player.gd` und `REACH_AT_RISE` in `gen_level.py`. Wer den
@@ -115,7 +132,7 @@ Souls-Struktur, jetzt vollständig:
 
 - **Lagerfeuer sind Checkpoints.** `E` zum Rasten heilt, füllt den Flakon und
   lässt **alle** Hollows wieder auferstehen. Wer hier rastet, startet nach dem
-  Tod hier — bei acht Bildschirmen Karte ist das keine Bequemlichkeit, sondern
+  Tod hier — bei sechzehn Bildschirmen Karte ist das keine Bequemlichkeit, sondern
   die Bedingung dafür, dass Sterben herausfordert statt bestraft.
 - **Der Flakon** (3 Ladungen) heilt 45 Leben, sperrt dich aber 0,75 s fest und
   gibt **keine** i-Frames. Vor einem ausholenden Hollow zu trinken soll die

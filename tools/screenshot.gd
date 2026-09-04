@@ -92,23 +92,39 @@ func _process(_delta: float) -> bool:
 		146:
 			_key(KEY_ESCAPE)
 		150:
-			_warp(56, 50)         # the descent shaft, ladder and ledges
+			_warp(64, 51)         # the descent shaft, ladder and ledges
 		174:
 			_grab("05_descent")
 		178:
-			_warp(96, 57)         # the ossuary, under its stepped beams
+			_warp(112, 76)        # the ossuary, under its stepped beams
 		202:
 			_grab("06_ossuary")
 		206:
-			_warp(120, 27)        # the ramparts, high above everything
+			_warp(200, 92)        # the flooded cistern
 		230:
-			_grab("07_ramparts")
+			_grab("10_cistern")
 		234:
-			# stand at the gate bonfire so the REST prompt shows
-			_warp(9, 45)
+			_warp(272, 108)       # the rootworks, lit by fungus
 		258:
-			_grab("09_bonfire")
+			_grab("11_rootworks")
 		262:
+			_warp(330, 124)       # the ember forge
+		286:
+			_grab("12_forge")
+		290:
+			_warp(352, 84)        # the frozen vault
+		314:
+			_grab("13_vault")
+		318:
+			_warp(200, 26)        # the ramparts, high above everything
+		342:
+			_grab("07_ramparts")
+		346:
+			# stand at the gate bonfire so the REST prompt shows
+			_warp(9, 46)
+		370:
+			_grab("09_bonfire")
+		374:
 			print("done.")
 			quit(0)
 			return true
