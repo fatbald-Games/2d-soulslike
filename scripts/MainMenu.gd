@@ -1,27 +1,38 @@
 extends Node2D
 ## The title screen: a crypt lit by two guttering torches, a skull rising out of
-## the bone heap, and three ways in.
+## the bone heap, and a panel with the way in.
 ##
 ## The backdrop PNG bakes the stonework, the skull and the pile; everything that
 ## should MOVE (torch flames, their light, drifting embers) is layered on here,
 ## so the screen breathes instead of sitting there as a still image.
+##
+## Three screens share one input handler and one panel style: MAIN, CONTROLS and
+## OPTIONS. Only one is visible at a time.
 
-const ITEMS := ["NEW GAME", "CONTROLS", "QUIT"]
+enum Screen { MAIN, CONTROLS, OPTIONS }
+
+const ITEMS := ["NEW GAME", "CONTROLS", "OPTIONS", "QUIT"]
+const OPTION_ITEMS := ["WINDOW", "SCREEN SHAKE", "HUD HINTS", "BACK"]
 const TORCH_XS := [34.0, 350.0]
 const TORCH_Y := 62.0
 
+var _screen: Screen = Screen.MAIN
 var _menu: MenuList
-var _controls: CanvasLayer
+var _options: MenuList
+var _pages: Dictionary = {}
 var _lights: Array = []
 var _t := 0.0
 var _leaving := false
 
 
 func _ready() -> void:
+	Settings.load_once()
+	Settings.apply_window()
 	_build_scene()
-	_build_ui()
-	_controls = _build_controls_panel()
-	_controls.visible = false
+	_pages[Screen.MAIN] = _build_main_page()
+	_pages[Screen.CONTROLS] = _build_controls_page()
+	_pages[Screen.OPTIONS] = _build_options_page()
+	_show(Screen.MAIN)
 
 
 # ------------------------------------------------------------------ scene ----
@@ -91,80 +102,114 @@ func _ember_column(x: float, y: float) -> void:
 
 
 # --------------------------------------------------------------------- ui ----
-func _build_ui() -> void:
-	var ui := CanvasLayer.new()
-	add_child(ui)
+## A screen: its own CanvasLayer, with ONE heading in a fixed spot and a footer.
+## Sub-pages replace the game title rather than stacking a second heading under
+## it — two headings at once is what made the options screen look crowded.
+func _page(heading: String, scale_px: int, hint: String) -> CanvasLayer:
+	var layer := CanvasLayer.new()
+	add_child(layer)
 
-	var title := PixelLabel.make("ASHEN HOLLOW", 4, UiTheme.BONE_BRIGHT)
+	var title := PixelLabel.make(heading, scale_px, UiTheme.BONE_BRIGHT)
 	title.shadow_tint = UiTheme.TITLE_SHADOW
 	title.shadow_offset = Vector2(2, 2)
-	title.center_on(UiTheme.VIEW.x * 0.5, UiTheme.TITLE_Y)
-	ui.add_child(title)
-
-	var sub := PixelLabel.make("THE ASH REMEMBERS", 1, UiTheme.BONE_FAINT)
-	sub.center_on(UiTheme.VIEW.x * 0.5, UiTheme.SUB_Y)
-	ui.add_child(sub)
-
-	_menu = MenuList.new()
-	ui.add_child(_menu)
-	_menu.build(ITEMS, UiTheme.VIEW.x * 0.5, UiTheme.MENU_Y0)
-	_menu.activated.connect(_on_activated)
+	title.center_on(UiTheme.VIEW.x * 0.5,
+			UiTheme.TITLE_Y + (0 if scale_px >= 4 else 6))
+	layer.add_child(title)
 
 	# the bone heap runs right along the bottom, so the hint needs its own dark
 	# band or it disappears into the bones
 	var footer := ColorRect.new()
-	footer.color = Color(0.02, 0.018, 0.03, 0.78)
+	footer.color = Color(0.02, 0.018, 0.03, 0.82)
 	footer.position = Vector2(0, UiTheme.VIEW.y - 17)
 	footer.size = Vector2(UiTheme.VIEW.x, 17)
 	footer.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	ui.add_child(footer)
+	layer.add_child(footer)
 
-	var hint := PixelLabel.make("ARROWS / W S  SELECT     ENTER  CONFIRM", 1,
-			UiTheme.BONE_FAINT)
-	hint.center_on(UiTheme.VIEW.x * 0.5, UiTheme.VIEW.y - 12)
-	ui.add_child(hint)
+	var rule := ColorRect.new()
+	rule.color = Color(0.36, 0.33, 0.30, 0.55)
+	rule.position = Vector2(0, UiTheme.VIEW.y - 17)
+	rule.size = Vector2(UiTheme.VIEW.x, 1)
+	layer.add_child(rule)
+
+	var tip := PixelLabel.make(hint, 1, UiTheme.BONE_FAINT)
+	tip.center_on(UiTheme.VIEW.x * 0.5, UiTheme.VIEW.y - 12)
+	layer.add_child(tip)
+	return layer
 
 
-func _build_controls_panel() -> CanvasLayer:
-	var layer := CanvasLayer.new()
-	add_child(layer)
+func _build_main_page() -> CanvasLayer:
+	var layer := _page("ASHEN HOLLOW", 4, "UP DOWN  SELECT      ENTER  CONFIRM")
 
-	var shade := ColorRect.new()
-	shade.color = Color(0.02, 0.018, 0.03, 0.88)
-	shade.size = UiTheme.VIEW
-	shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	layer.add_child(shade)
+	var sub := PixelLabel.make("THE ASH REMEMBERS", 1, UiTheme.BONE_FAINT)
+	sub.center_on(UiTheme.VIEW.x * 0.5, UiTheme.SUB_Y)
+	layer.add_child(sub)
 
-	var head := PixelLabel.make("CONTROLS", 3, UiTheme.BONE_BRIGHT)
-	head.shadow_tint = UiTheme.TITLE_SHADOW
-	head.center_on(UiTheme.VIEW.x * 0.5, 26)
-	layer.add_child(head)
+	var box := UiTheme.add_panel(layer, ITEMS)
+	var origin: Vector2 = box[0]
+	var size: Vector2 = box[1]
 
-	var rows := [
-		["A  D", "MOVE"],
-		["SPACE", "JUMP"],
-		["J", "ATTACK"],
-		["K  SHIFT", "DODGE ROLL"],
-		["ESC", "PAUSE"],
-	]
-	for i in rows.size():
-		var y := 62 + i * 16
-		var key := PixelLabel.make(rows[i][0], 2, UiTheme.EMBER)
-		key.position = Vector2(96, y)
-		layer.add_child(key)
-		var act := PixelLabel.make(rows[i][1], 2, UiTheme.BONE)
-		act.position = Vector2(196, y)
-		layer.add_child(act)
+	_menu = MenuList.new()
+	layer.add_child(_menu)
+	_menu.build(ITEMS, origin, size.x)
+	_menu.activated.connect(_on_main_activated)
+	return layer
+
+
+func _build_controls_page() -> CanvasLayer:
+	var layer := _page("CONTROLS", 3, "ESC  BACK")
+
+	# size the panel to the widest name + key pair, so the two columns line up
+	var names: Array = []
+	var keys: Array = []
+	for r in UiTheme.CONTROL_ROWS:
+		names.append(r[0])
+		keys.append(r[1])
+	var box := UiTheme.add_panel(layer, names, 1, 12, keys, 190.0)
+	var origin: Vector2 = box[0]
+	var size: Vector2 = box[1]
+	UiTheme.add_rows(layer, UiTheme.CONTROL_ROWS, origin, size.x)
 
 	var tip := PixelLabel.make("THE ROLL IS INVULNERABLE IN ITS MIDDLE - TIME IT", 1,
 			UiTheme.BONE_FAINT)
-	tip.center_on(UiTheme.VIEW.x * 0.5, 158)
+	tip.center_on(UiTheme.VIEW.x * 0.5, origin.y + size.y + 8)
 	layer.add_child(tip)
-
-	var back := PixelLabel.make("ESC  BACK", 1, UiTheme.BONE_FAINT)
-	back.center_on(UiTheme.VIEW.x * 0.5, UiTheme.VIEW.y - 14)
-	layer.add_child(back)
 	return layer
+
+
+func _build_options_page() -> CanvasLayer:
+	var layer := _page("OPTIONS", 3, "LEFT RIGHT  CHANGE      ESC  BACK")
+
+	var vals := _option_values()
+	var box := UiTheme.add_panel(layer, OPTION_ITEMS, 2, UiTheme.MENU_STEP, vals, 190.0)
+	var origin: Vector2 = box[0]
+	var size: Vector2 = box[1]
+
+	_options = MenuList.new()
+	layer.add_child(_options)
+	_options.build(OPTION_ITEMS, origin, size.x, 2, UiTheme.MENU_STEP, vals)
+	_options.activated.connect(_on_option_activated)
+	_options.value_changed.connect(_on_option_changed)
+	return layer
+
+
+func _option_values() -> Array:
+	return [Settings.scale_label(),
+			"ON" if Settings.screen_shake else "OFF",
+			"ON" if Settings.hud_hints else "OFF",
+			""]
+
+
+func _refresh_options() -> void:
+	var vals := _option_values()
+	for i in vals.size():
+		_options.set_value(i, vals[i])
+
+
+func _show(s: Screen) -> void:
+	_screen = s
+	for key in _pages:
+		var layer: CanvasLayer = _pages[key]
+		layer.visible = (key == s)
 
 
 # ------------------------------------------------------------------ input ----
@@ -175,30 +220,63 @@ func _unhandled_input(event: InputEvent) -> void:
 	if not k.pressed or k.echo:
 		return
 
-	if _controls.visible:
-		if k.physical_keycode in [KEY_ESCAPE, KEY_ENTER, KEY_KP_ENTER, KEY_SPACE]:
-			_controls.visible = false
-		return
+	match _screen:
+		Screen.MAIN:
+			_input_list(k, _menu)
+		Screen.OPTIONS:
+			if k.physical_keycode == KEY_ESCAPE:
+				_show(Screen.MAIN)
+			else:
+				_input_list(k, _options)
+		Screen.CONTROLS:
+			if k.physical_keycode in [KEY_ESCAPE, KEY_ENTER, KEY_KP_ENTER, KEY_SPACE]:
+				_show(Screen.MAIN)
 
+
+func _input_list(k: InputEventKey, list: MenuList) -> void:
 	match k.physical_keycode:
 		KEY_UP, KEY_W:
-			_menu.move(-1)
+			list.move(-1)
 		KEY_DOWN, KEY_S:
-			_menu.move(1)
+			list.move(1)
+		KEY_LEFT, KEY_A:
+			list.nudge(-1)
+		KEY_RIGHT, KEY_D:
+			list.nudge(1)
 		KEY_ENTER, KEY_KP_ENTER, KEY_SPACE:
-			_menu.activate()
-		KEY_ESCAPE:
-			pass
+			list.activate()
 
 
-func _on_activated(idx: int) -> void:
+func _on_main_activated(idx: int) -> void:
 	match idx:
 		0:
 			_start_game()
 		1:
-			_controls.visible = true
+			_show(Screen.CONTROLS)
 		2:
+			_show(Screen.OPTIONS)
+		3:
 			get_tree().quit()
+
+
+func _on_option_activated(idx: int) -> void:
+	if idx == 3:
+		_show(Screen.MAIN)
+	else:
+		_on_option_changed(idx, 1)      # ENTER toggles, same as pushing right
+
+
+func _on_option_changed(idx: int, dir: int) -> void:
+	match idx:
+		0:
+			Settings.cycle_window(dir)
+		1:
+			Settings.screen_shake = not Settings.screen_shake
+			Settings.save()
+		2:
+			Settings.hud_hints = not Settings.hud_hints
+			Settings.save()
+	_refresh_options()
 
 
 func _start_game() -> void:

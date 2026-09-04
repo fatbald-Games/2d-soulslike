@@ -652,7 +652,9 @@ os.makedirs(UI_OUT, exist_ok=True)
 
 # Keep this string in sync with PixelLabel.CHARS on the Godot side: the engine
 # looks a glyph up purely by its index in here.
-FONT_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,:!?'-()/ "
+# '+' is appended LAST on purpose: a glyph is found by its index in this
+# string, so adding to the end leaves every existing index untouched.
+FONT_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,:!?'-()/ +"
 GLYPH_W, GLYPH_H = 5, 7
 CELL_W, CELL_H = 6, 8
 
@@ -704,16 +706,18 @@ GLYPHS = {
     ')': [".#...", "..#..", "...#.", "...#.", "...#.", "..#..", ".#..."],
     '/': ["....#", "....#", "...#.", "..#..", ".#...", "#....", "#...."],
     ' ': [".....", ".....", ".....", ".....", ".....", ".....", "....."],
+    '+': [".....", "..#..", "..#..", "#####", "..#..", "..#..", "....."],
 }
 
 # Menu layout, shared by the backdrop, the mock-up and MainMenu.gd. The
 # backdrop bakes the skull at SKULL_TOP, so the engine must place its text at
 # these same coordinates or the composition falls apart.
-TITLE_Y = 24
-SUB_Y = 58
-MENU_Y0 = 78
+TITLE_Y = 20
+SUB_Y = 50
+MENU_Y0 = 80          # first entry INSIDE the panel
 MENU_STEP = 18
-SKULL_TOP = 130
+PANEL_Y = 66
+SKULL_TOP = 168       # just its dome above the bones; the panel is the focus now
 
 # --- bone palette -------------------------------------------------------------
 UIPAL = {
@@ -943,7 +947,7 @@ def menu_backdrop(wall, floor, w=384, h=216):
     # A huge skull rising out of the heap at the bottom — placed BELOW the menu
     # entries so its sockets and teeth stay readable instead of hiding behind
     # letters, and drawn before the pile so the bones bury its jaw.
-    big = _darken(big_skull(), 0.48)
+    big = _darken(big_skull(), 0.52)
     img.alpha_composite(big, ((w - big.width) // 2, SKULL_TOP))
 
     # bone heap along the bottom: larger overlapping pieces, densest at the
@@ -974,9 +978,134 @@ def menu_backdrop(wall, floor, w=384, h=216):
     return img
 
 
+def ui_panel(size=24):
+    """A 9-slice frame for menu boxes: carved bone border over a dark, slightly
+    translucent fill, so the crypt behind still shows through faintly.
+
+    Godot stretches this with NinePatchRect; the border pattern is uniform along
+    each edge, so stretching never smears a detail. Corner rivets sit inside the
+    fixed 8px corner blocks and therefore stay crisp at any size."""
+    img = Image.new("RGBA", (size, size), T)
+    px = img.load()
+    OUTL = (10, 9, 14, 255)
+    BONE = (150, 142, 122, 255)
+    BONE_HI = (198, 190, 168, 255)
+    BONE_LO = (92, 86, 74, 255)
+    FILL = (13, 12, 17, 219)          # not fully opaque: the backdrop bleeds in
+    for y in range(size):
+        for x in range(size):
+            d = min(x, y, size - 1 - x, size - 1 - y)
+            if d == 0:
+                px[x, y] = OUTL
+            elif d == 1:
+                px[x, y] = BONE_HI if y < size / 2 else BONE_LO
+            elif d == 2:
+                px[x, y] = BONE
+            elif d == 3:
+                px[x, y] = OUTL
+            else:
+                px[x, y] = FILL
+    for (cx, cy) in ((5, 5), (size - 6, 5), (5, size - 6), (size - 6, size - 6)):
+        px[cx, cy] = BONE_HI            # rivets
+    return img
+
+
+def vignette(w=384, h=216):
+    """Darkens the screen edges so the eye settles in the middle. Drawn over the
+    world but under the HUD."""
+    img = Image.new("RGBA", (w, h), T)
+    px = img.load()
+    cx, cy = w / 2.0, h / 2.0
+    for y in range(h):
+        for x in range(w):
+            d = (((x - cx) / cx) ** 2 + ((y - cy) / cy) ** 2) ** 0.5
+            a = max(0.0, (d - 0.55) / 0.85)
+            px[x, y] = (4, 3, 7, int(min(1.0, a * a) * 205))
+    return img
+
+
+def flask_frames():
+    """The knight's flask: full, then drained. Two frames, HUD sized."""
+    grid_full = [
+        ".ooo.",
+        ".oIo.",
+        "ooooo",
+        "oZZZo",
+        "oZZZo",
+        "oZZZo",
+        "ooooo",
+    ]
+    grid_empty = [r.replace('Z', 'n') for r in grid_full]
+    return [grid_to_img(grid_full, UIPAL), grid_to_img(grid_empty, UIPAL)]
+
+
+def soul_orb_frames():
+    """The souls you dropped, waiting where you fell. Pulses so it reads as a
+    thing to walk into from across a dark room."""
+    frames = []
+    for i, r in enumerate((3.0, 3.7, 4.3, 3.7)):
+        img = Image.new("RGBA", (11, 11), T)
+        px = img.load()
+        for y in range(11):
+            for x in range(11):
+                d = ((x - 5) ** 2 + (y - 5) ** 2) ** 0.5
+                if d <= r * 0.55:
+                    px[x, y] = (232, 246, 255, 255)
+                elif d <= r:
+                    px[x, y] = (150, 230, 214, 240)
+                elif d <= r + 1.4:
+                    px[x, y] = (86, 168, 168, 150)
+        frames.append(img)
+    return frames
+
+
 def save_ui(img, name):
     img.save(os.path.join(UI_OUT, name))
     print("  wrote ui/%s" % name, img.size)
+
+
+## Panel size for a menu, derived from its longest entry. Mirrors
+## UiTheme.menu_panel_metrics() -- both must agree or the mock-up lies.
+CURSOR_GUTTER = 30      # cursor skull + breathing room, left of the text
+PANEL_PAD_X = 12
+PANEL_PAD_TOP = 14
+PANEL_PAD_BOTTOM = 12
+
+
+def menu_panel_metrics(items, scale_px=2, step=None):
+    step = MENU_STEP if step is None else step
+    longest = max(text_width(it, scale_px) for it in items)
+    panel_w = CURSOR_GUTTER + longest + PANEL_PAD_X
+    panel_h = (MENU_Y0 - PANEL_Y) + (len(items) - 1) * step + 7 * scale_px \
+        + PANEL_PAD_BOTTOM
+    return CURSOR_GUTTER, panel_w, panel_h
+
+
+def _draw_panel(img, x, y, w, h):
+    """The same border ui_panel() bakes, drawn directly for the mock-up."""
+    OUTL = (10, 9, 14, 255)
+    BONE = (150, 142, 122, 255)
+    BONE_HI = (198, 190, 168, 255)
+    BONE_LO = (92, 86, 74, 255)
+    FILL = (13, 12, 17, 219)
+    layer = Image.new("RGBA", (w, h), T)
+    px = layer.load()
+    for yy in range(h):
+        for xx in range(w):
+            d = min(xx, yy, w - 1 - xx, h - 1 - yy)
+            if d == 0:
+                px[xx, yy] = OUTL
+            elif d == 1:
+                px[xx, yy] = BONE_HI if yy < h / 2 else BONE_LO
+            elif d == 2:
+                px[xx, yy] = BONE
+            elif d == 3:
+                px[xx, yy] = OUTL
+            else:
+                px[xx, yy] = FILL
+    for (cx, cy) in ((5, 5), (w - 6, 5), (5, h - 6), (w - 6, h - 6)):
+        px[cx, cy] = BONE_HI
+    img.alpha_composite(layer, (x, y))
 
 
 def _composite_bar(img, pos, frame, overlay, cap, frac, fill_col, edge_col):
@@ -1014,17 +1143,24 @@ def build_ui_preview(backdrop, hp_bar, sp_bar, skulls, game_tile):
     sub = "THE ASH REMEMBERS"
     draw_text(shot, sub, (w - text_width(sub, 1)) // 2, SUB_Y, 1, (128, 116, 104, 255))
 
-    # --- menu entries, first one selected ---
-    items = ["NEW GAME", "CONTROLS", "QUIT"]
+    # --- entries, left-aligned inside a panel (mirrors MainMenu.gd) ---
+    items = ["NEW GAME", "CONTROLS", "OPTIONS", "QUIT"]
+    text_x, panel_w, panel_h = menu_panel_metrics(items)
+    panel_x = (w - panel_w) // 2
+    _draw_panel(shot, panel_x, PANEL_Y, panel_w, panel_h)
     for i, it in enumerate(items):
         y = MENU_Y0 + i * MENU_STEP
         sel = (i == 0)
         col = (236, 226, 202, 255) if sel else (122, 112, 100, 255)
-        iw = text_width(it, 2)
-        ix = (w - iw) // 2
-        draw_text(shot, it, ix, y, 2, col)
+        ix = panel_x + text_x
         if sel:
-            shot.alpha_composite(skulls[1], (ix - 18, y + 2))
+            for yy in range(y - 3, y + 17):
+                for xx in range(panel_x + 5, panel_x + panel_w - 5):
+                    r, g, b, a = shot.getpixel((xx, yy))
+                    shot.putpixel((xx, yy), (min(255, r + 26), min(255, g + 22),
+                                             min(255, b + 26), a))
+            shot.alpha_composite(skulls[1], (panel_x + 12, y + 2))
+        draw_text(shot, it, ix, y, 2, col)
 
     # --- second panel: the in-game HUD over a lit dungeon strip ---
     panel_h = 64
@@ -1294,6 +1430,10 @@ def main():
     print("  wrote tools/preview.png", preview.size, "(x5)")
 
     # --- bone-themed interface art ---
+    save_ui(ui_panel(), "panel.png")
+    save_ui(vignette(), "vignette.png")
+    save_ui(hsheet(flask_frames()), "flask.png")
+    save_ui(hsheet(soul_orb_frames()), "soul_orb.png")
     save_ui(font_sheet(), "font_5x7.png")
     skulls = skull_frames()
     save_ui(hsheet(skulls), "skull.png")

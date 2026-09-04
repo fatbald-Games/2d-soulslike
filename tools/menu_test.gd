@@ -16,6 +16,8 @@ var _phase_frame := -1
 
 var _menu_scene: Node
 var _list: MenuList
+var _scale0 := 0
+var _shake0 := true
 
 
 func _initialize() -> void:
@@ -76,9 +78,10 @@ func _process(_delta: float) -> bool:
 		0: _phase_boot()
 		1: _phase_navigate()
 		2: _phase_controls_panel()
-		3: _phase_start_game()
-		4: _phase_pause()
-		5: _phase_quit_to_menu()
+		3: _phase_options()
+		4: _phase_start_game()
+		5: _phase_pause()
+		6: _phase_quit_to_menu()
 		_: return _finish()
 	return false
 
@@ -92,43 +95,123 @@ func _phase_boot() -> void:
 	if _list == null:
 		_phase = 99
 		return
-	_ok("menu offers three entries", _list._labels.size() == 3,
-			"got %d" % _list._labels.size())
+	# counted from the menu's own ITEMS, so adding an entry cannot stale this
+	_ok("every title entry is built",
+			_list._labels.size() == _menu_scene.ITEMS.size(),
+			"got %d of %d" % [_list._labels.size(), _menu_scene.ITEMS.size()])
+	_ok("the title screen offers an options entry",
+			_menu_scene.ITEMS.has("OPTIONS"))
 	_ok("first entry starts selected", _list.index == 0)
 	_ok("a cursor skull is present", _list._cursor != null)
 	_ok("the backdrop art loaded", UiTheme.tex("menu_bg.png") != null)
 	_ok("the bone font loaded", PixelLabel.font() != null)
+
+	# A character the font does not have renders as a blank, silently — that is
+	# how "S + SPACE" shipped reading "S   SPACE". Check every string the UI
+	# actually shows.
+	var missing := _unrenderable()
+	_ok("every UI string is fully renderable", missing.is_empty(),
+			"missing glyphs: %s" % missing)
 	_next()
 
 
+func _unrenderable() -> String:
+	var strings: Array = []
+	strings.append_array(_menu_scene.ITEMS)
+	strings.append_array(_menu_scene.OPTION_ITEMS)
+	for r in UiTheme.CONTROL_ROWS:
+		strings.append(r[0])
+		strings.append(r[1])
+	for a in LevelMap.AREAS:
+		strings.append(a["name"])
+	for e in LevelMap.ENTITIES:
+		if e.has("text"):
+			strings.append(e["text"])
+	var missing := ""
+	for s in strings:
+		for i in (s as String).length():
+			var c: String = (s as String)[i].to_upper()
+			if PixelLabel.CHARS.find(c) < 0 and not missing.contains(c):
+				missing += c
+	return missing
+
+
 func _phase_navigate() -> void:
+	var last: int = _list._labels.size() - 1
 	match _phase_frame:
 		0: _key(KEY_DOWN)
 		2: _ok("DOWN moves the selection", _list.index == 1, "index=%d" % _list.index)
 		3: _key(KEY_S)
 		5: _ok("S also moves the selection", _list.index == 2, "index=%d" % _list.index)
-		6: _key(KEY_DOWN)
+		6:
+			# step to the last entry, then one past it
+			for i in range(_list.index, last + 1):
+				_key(KEY_DOWN)
 		8: _ok("selection wraps past the last entry", _list.index == 0,
 				"index=%d" % _list.index)
 		9: _key(KEY_UP)
 		11:
-			_ok("UP wraps back to the last entry", _list.index == 2,
+			_ok("UP wraps back to the last entry", _list.index == last,
 					"index=%d" % _list.index)
+			_ok("the cursor tracks the selected row",
+					absf(_list._cursor.position.y - _list._labels[last].position.y) < 6.0)
 			_next()
 
 
+## Screen enum: 0 MAIN, 1 CONTROLS, 2 OPTIONS.
 func _phase_controls_panel() -> void:
-	var panel: CanvasLayer = _menu_scene._controls
 	match _phase_frame:
 		0:
-			_ok("the controls panel starts hidden", not panel.visible)
+			_ok("the title starts on the main screen", _menu_scene._screen == 0,
+					"screen=%d" % _menu_scene._screen)
 			_list.index = 1                 # CONTROLS
 			_key(KEY_ENTER)
 		2:
-			_ok("ENTER on CONTROLS opens the panel", panel.visible)
+			_ok("ENTER on CONTROLS opens the controls screen",
+					_menu_scene._screen == 1, "screen=%d" % _menu_scene._screen)
+			_ok("only the controls page is visible",
+					_menu_scene._pages[1].visible and not _menu_scene._pages[0].visible)
 			_key(KEY_ESCAPE)
 		4:
-			_ok("ESC closes the controls panel", not panel.visible)
+			_ok("ESC returns from CONTROLS", _menu_scene._screen == 0,
+					"screen=%d" % _menu_scene._screen)
+			_next()
+
+
+func _phase_options() -> void:
+	match _phase_frame:
+		0:
+			_list.index = 2                 # OPTIONS
+			_key(KEY_ENTER)
+		2:
+			_ok("ENTER on OPTIONS opens the options screen",
+					_menu_scene._screen == 2, "screen=%d" % _menu_scene._screen)
+			_scale0 = Settings.window_scale
+			_shake0 = Settings.screen_shake
+			_key(KEY_RIGHT)                 # first row is WINDOW
+		4:
+			_ok("RIGHT changes the window setting",
+					Settings.window_scale != _scale0,
+					"%d -> %d" % [_scale0, Settings.window_scale])
+			_ok("the options row shows its new value",
+					_menu_scene._options._values[0].text == Settings.scale_label(),
+					"shows %s" % _menu_scene._options._values[0].text)
+			_key(KEY_DOWN)
+		6:
+			_key(KEY_RIGHT)                 # SCREEN SHAKE
+		8:
+			_ok("RIGHT toggles screen shake",
+					Settings.screen_shake != _shake0)
+			_ok("changed settings are written to disk",
+					FileAccess.file_exists(Settings.PATH))
+			_key(KEY_ESCAPE)
+		10:
+			_ok("ESC returns from OPTIONS", _menu_scene._screen == 0,
+					"screen=%d" % _menu_scene._screen)
+			# leave the user's settings as we found them
+			Settings.window_scale = _scale0
+			Settings.screen_shake = _shake0
+			Settings.save()
 			_next()
 
 
@@ -175,12 +258,12 @@ func _phase_quit_to_menu() -> void:
 		0:
 			_key(KEY_ESCAPE)
 		2:
-			current_scene.pause_menu._menu.index = 2      # QUIT TO MENU
+			current_scene.pause_menu._menu.index = 3      # QUIT TO TITLE
 			_key(KEY_ENTER)
 	if _phase_frame < 14:
 		return
 	var scn := current_scene
-	_ok("QUIT TO MENU returns to the title screen",
+	_ok("QUIT TO TITLE returns to the title screen",
 			is_instance_valid(scn)
 			and scn.scene_file_path == "res://scenes/MainMenu.tscn",
 			"scene=%s" % (scn.scene_file_path if is_instance_valid(scn) else "<freed>"))

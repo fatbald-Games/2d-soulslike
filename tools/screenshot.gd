@@ -64,35 +64,43 @@ func _process(_delta: float) -> bool:
 		58:
 			_key(KEY_ESCAPE)
 		62:
+			(_find(_scene, "MenuList") as MenuList).index = 2     # OPTIONS
+			_key(KEY_ENTER)
+		70:
+			_grab("08_options")
+		72:
+			_key(KEY_ESCAPE)
+		76:
 			(_find(_scene, "MenuList") as MenuList).index = 0     # NEW GAME
 			_key(KEY_ENTER)
-		110:
+		120:
 			# take a couple of hits first, so the health bar and its ghost show
 			current_scene.player.take_damage(34.0, Vector2(400, 0))
 			current_scene.player.add_souls(1240)
-		114:
+		124:
 			current_scene.player.stamina = 46.0
 			current_scene.player.stamina_changed.emit(46.0, 100.0)
-		120:
+		130:
 			_grab("03_hud")
-		124:
+		134:
 			_key(KEY_ESCAPE)
-		132:
+		142:
 			_grab("04_pause")
-		136:
+		146:
 			_key(KEY_ESCAPE)
+		150:
 			_warp(56, 50)         # the descent shaft, ladder and ledges
-		160:
+		174:
 			_grab("05_descent")
-		164:
+		178:
 			_warp(96, 57)         # the ossuary, under its stepped beams
-		190:
+		202:
 			_grab("06_ossuary")
-		194:
+		206:
 			_warp(120, 27)        # the ramparts, high above everything
-		220:
+		230:
 			_grab("07_ramparts")
-		224:
+		234:
 			print("done.")
 			quit(0)
 			return true

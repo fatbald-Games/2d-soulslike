@@ -21,10 +21,84 @@ const TITLE_SHADOW := Color(0.408, 0.086, 0.063)
 # --- menu layout (mirrors the constants in tools/gen_art.py; the backdrop
 # bakes the big skull relative to these, so they must not drift) ---
 const VIEW := Vector2(384, 216)
-const TITLE_Y := 24
-const SUB_Y := 58
-const MENU_Y0 := 78
+const TITLE_Y := 20
+const SUB_Y := 50
+const PANEL_Y := 66
+const MENU_Y0 := 80          # first entry INSIDE the panel
 const MENU_STEP := 18
+
+# Panel geometry, mirrored by menu_panel_metrics() in tools/gen_art.py.
+const CURSOR_GUTTER := 30    # cursor skull + air, left of the entry text
+const PANEL_PAD_X := 12
+const PANEL_PAD_BOTTOM := 12
+const VALUE_GAP := 24        # between an option's name and its value column
+
+
+## Panel size for a list of entries, sized to its longest line rather than a
+## magic constant — that is what keeps a four-item menu and a two-item one
+## looking like the same design.
+static func menu_panel_size(items: Array, scale_px: int = 2,
+		step: int = MENU_STEP, values: Array = []) -> Vector2:
+	var longest := 0.0
+	for i in items.size():
+		var line := PixelLabel.measure(items[i], scale_px).x
+		if i < values.size():
+			line += VALUE_GAP + PixelLabel.measure(str(values[i]), scale_px).x
+		longest = maxf(longest, line)
+	return Vector2(CURSOR_GUTTER + longest + PANEL_PAD_X,
+			(MENU_Y0 - PANEL_Y) + (items.size() - 1) * step
+			+ PixelLabel.GLYPH_H * scale_px + PANEL_PAD_BOTTOM)
+
+
+## The one control table, shared by the title screen and the pause screen —
+## two copies drift the moment a key is rebound.
+const CONTROL_ROWS := [
+	["MOVE", "A  D"],
+	["JUMP", "SPACE"],
+	["CLIMB", "W  S"],
+	["DROP THROUGH", "S + SPACE"],
+	["ATTACK", "J"],
+	["DODGE ROLL", "K"],
+	["PAUSE", "ESC"],
+]
+
+
+## Centres a panel sized to its contents on `parent`. Returns [origin, size].
+static func add_panel(parent: Node, items: Array, scale_px: int = 2,
+		step: int = MENU_STEP, values: Array = [],
+		min_w: float = 0.0) -> Array:
+	var size := menu_panel_size(items, scale_px, step, values)
+	size.x = maxf(size.x, min_w)
+	var origin := Vector2(roundf((VIEW.x - size.x) * 0.5), PANEL_Y)
+	var p := panel(size)
+	p.position = origin
+	parent.add_child(p)
+	return [origin, size]
+
+
+## Lays out a name/key table inside a panel: names left, keys right.
+static func add_rows(parent: Node, rows: Array, origin: Vector2,
+		panel_w: float, step: int = 12) -> void:
+	for i in rows.size():
+		var y := origin.y + (MENU_Y0 - PANEL_Y) + i * step
+		var name_label := PixelLabel.make(rows[i][0], 1, BONE)
+		name_label.position = Vector2(origin.x + 16, y)
+		parent.add_child(name_label)
+		var key := PixelLabel.make(rows[i][1], 1, EMBER)
+		key.position = Vector2(origin.x + panel_w - PANEL_PAD_X - key.size.x, y)
+		parent.add_child(key)
+
+
+## A bone-framed box. NinePatchRect keeps the border crisp at any size.
+static func panel(size: Vector2) -> NinePatchRect:
+	var p := NinePatchRect.new()
+	p.texture = tex("panel.png")
+	p.patch_margin_left = 8
+	p.patch_margin_top = 8
+	p.patch_margin_right = 8
+	p.patch_margin_bottom = 8
+	p.size = size
+	return p
 
 # --- bar geometry: twin fangs flank a small recessed plate; the channel the
 # fill is drawn into is inset by the fang length + the plate's own rim (see

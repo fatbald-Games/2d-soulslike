@@ -4,76 +4,123 @@ extends CanvasLayer
 ## The tree is paused while this is open, so the node runs in ALWAYS mode —
 ## otherwise it would freeze along with the game and never process the keypress
 ## that closes it again.
+##
+## Same panel, cursor and footer as the title screen: a pause menu that looks
+## like a different game is the fastest way to make a UI feel unfinished.
 
 signal resumed
 signal quit_to_menu
 
-const ITEMS := ["RESUME", "CONTROLS", "QUIT TO MENU"]
+const ITEMS := ["RESUME", "CONTROLS", "OPTIONS", "QUIT TO TITLE"]
+const OPTION_ITEMS := ["WINDOW", "SCREEN SHAKE", "HUD HINTS", "BACK"]
 
+enum Screen { MAIN, CONTROLS, OPTIONS }
+
+var _screen: Screen = Screen.MAIN
 var _menu: MenuList
-var _controls: Control
+var _options: MenuList
+var _pages: Dictionary = {}
+var _shade: ColorRect
 var _open := false
 
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	layer = 10                       # above the HUD
+	Settings.load_once()
 	_build()
 	visible = false
 
 
 func _build() -> void:
-	var shade := ColorRect.new()
-	shade.color = Color(0.02, 0.018, 0.03, 0.82)
-	shade.size = UiTheme.VIEW
-	shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(shade)
+	_shade = ColorRect.new()
+	_shade.color = Color(0.02, 0.018, 0.03, 0.80)
+	_shade.size = UiTheme.VIEW
+	_shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_shade)
 
-	var head := PixelLabel.make("PAUSED", 4, UiTheme.BONE_BRIGHT)
+	_pages[Screen.MAIN] = _build_main()
+	_pages[Screen.CONTROLS] = _build_controls()
+	_pages[Screen.OPTIONS] = _build_options()
+	_show(Screen.MAIN)
+
+
+func _page(heading: String, hint: String) -> Control:
+	var page := Control.new()
+	page.size = UiTheme.VIEW
+	page.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(page)
+
+	var head := PixelLabel.make(heading, 3, UiTheme.BONE_BRIGHT)
 	head.shadow_tint = UiTheme.TITLE_SHADOW
 	head.shadow_offset = Vector2(2, 2)
-	head.center_on(UiTheme.VIEW.x * 0.5, 40)
-	add_child(head)
+	head.center_on(UiTheme.VIEW.x * 0.5, 28)
+	page.add_child(head)
+
+	var tip := PixelLabel.make(hint, 1, UiTheme.BONE_FAINT)
+	tip.center_on(UiTheme.VIEW.x * 0.5, UiTheme.VIEW.y - 18)
+	page.add_child(tip)
+	return page
+
+
+func _build_main() -> Control:
+	var page := _page("PAUSED", "UP DOWN  SELECT      ENTER  CONFIRM")
+	var box := UiTheme.add_panel(page, ITEMS, 2, UiTheme.MENU_STEP, [], 190.0)
+	var origin: Vector2 = box[0]
+	var size: Vector2 = box[1]
 
 	_menu = MenuList.new()
-	add_child(_menu)
-	_menu.build(ITEMS, UiTheme.VIEW.x * 0.5, 96)
+	page.add_child(_menu)
+	_menu.build(ITEMS, origin, size.x)
 	_menu.activated.connect(_on_activated)
-
-	_controls = _build_controls()
-	_controls.visible = false
+	return page
 
 
 func _build_controls() -> Control:
-	var panel := Control.new()
-	panel.size = UiTheme.VIEW
-	add_child(panel)
+	var page := _page("CONTROLS", "ESC  BACK")
+	var names: Array = []
+	var keys: Array = []
+	for r in UiTheme.CONTROL_ROWS:
+		names.append(r[0])
+		keys.append(r[1])
+	var box := UiTheme.add_panel(page, names, 1, 12, keys, 190.0)
+	UiTheme.add_rows(page, UiTheme.CONTROL_ROWS, box[0], (box[1] as Vector2).x)
+	return page
 
-	var shade := ColorRect.new()
-	shade.color = Color(0.02, 0.018, 0.03, 0.94)
-	shade.size = UiTheme.VIEW
-	shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	panel.add_child(shade)
 
-	var head := PixelLabel.make("CONTROLS", 3, UiTheme.BONE_BRIGHT)
-	head.center_on(UiTheme.VIEW.x * 0.5, 30)
-	panel.add_child(head)
+func _build_options() -> Control:
+	var page := _page("OPTIONS", "LEFT RIGHT  CHANGE      ESC  BACK")
+	var vals := _option_values()
+	var box := UiTheme.add_panel(page, OPTION_ITEMS, 2, UiTheme.MENU_STEP, vals, 190.0)
+	var origin: Vector2 = box[0]
+	var size: Vector2 = box[1]
 
-	var rows := [["A  D", "MOVE"], ["SPACE", "JUMP"], ["J", "ATTACK"],
-			["K  SHIFT", "DODGE ROLL"], ["ESC", "PAUSE"]]
-	for i in rows.size():
-		var y := 64 + i * 16
-		var key := PixelLabel.make(rows[i][0], 2, UiTheme.EMBER)
-		key.position = Vector2(96, y)
-		panel.add_child(key)
-		var act := PixelLabel.make(rows[i][1], 2, UiTheme.BONE)
-		act.position = Vector2(196, y)
-		panel.add_child(act)
+	_options = MenuList.new()
+	page.add_child(_options)
+	_options.build(OPTION_ITEMS, origin, size.x, 2, UiTheme.MENU_STEP, vals)
+	_options.activated.connect(_on_option_activated)
+	_options.value_changed.connect(_on_option_changed)
+	return page
 
-	var back := PixelLabel.make("ESC  BACK", 1, UiTheme.BONE_FAINT)
-	back.center_on(UiTheme.VIEW.x * 0.5, UiTheme.VIEW.y - 16)
-	panel.add_child(back)
-	return panel
+
+func _option_values() -> Array:
+	return [Settings.scale_label(),
+			"ON" if Settings.screen_shake else "OFF",
+			"ON" if Settings.hud_hints else "OFF",
+			""]
+
+
+func _refresh_options() -> void:
+	var vals := _option_values()
+	for i in vals.size():
+		_options.set_value(i, vals[i])
+
+
+func _show(s: Screen) -> void:
+	_screen = s
+	for key in _pages:
+		var page: Control = _pages[key]
+		page.visible = (key == s)
 
 
 func is_open() -> bool:
@@ -85,9 +132,9 @@ func open() -> void:
 		return
 	_open = true
 	visible = true
-	_controls.visible = false
 	_menu.index = 0
 	_menu._apply()
+	_show(Screen.MAIN)
 	get_tree().paused = true
 
 
@@ -101,7 +148,7 @@ func close() -> void:
 
 
 ## Swallow the key so the game underneath does not also act on it. Activating
-## QUIT TO MENU tears this node out of the tree mid-handler, so the viewport can
+## QUIT TO TITLE tears this node out of the tree mid-handler, so the viewport can
 ## be gone by the time we get here — check before reaching for it.
 func _consume() -> void:
 	if is_inside_tree():
@@ -123,22 +170,35 @@ func _unhandled_input(event: InputEvent) -> void:
 			_consume()
 		return
 
-	if _controls.visible:
-		if k.physical_keycode in [KEY_ESCAPE, KEY_ENTER, KEY_KP_ENTER, KEY_SPACE]:
-			_controls.visible = false
-		_consume()
-		return
+	match _screen:
+		Screen.MAIN:
+			if k.physical_keycode == KEY_ESCAPE:
+				close()
+			else:
+				_input_list(k, _menu)
+		Screen.OPTIONS:
+			if k.physical_keycode == KEY_ESCAPE:
+				_show(Screen.MAIN)
+			else:
+				_input_list(k, _options)
+		Screen.CONTROLS:
+			if k.physical_keycode in [KEY_ESCAPE, KEY_ENTER, KEY_KP_ENTER, KEY_SPACE]:
+				_show(Screen.MAIN)
+	_consume()
 
+
+func _input_list(k: InputEventKey, list: MenuList) -> void:
 	match k.physical_keycode:
 		KEY_UP, KEY_W:
-			_menu.move(-1)
+			list.move(-1)
 		KEY_DOWN, KEY_S:
-			_menu.move(1)
+			list.move(1)
+		KEY_LEFT, KEY_A:
+			list.nudge(-1)
+		KEY_RIGHT, KEY_D:
+			list.nudge(1)
 		KEY_ENTER, KEY_KP_ENTER, KEY_SPACE:
-			_menu.activate()
-		KEY_ESCAPE:
-			close()
-	_consume()
+			list.activate()
 
 
 func _on_activated(idx: int) -> void:
@@ -146,8 +206,30 @@ func _on_activated(idx: int) -> void:
 		0:
 			close()
 		1:
-			_controls.visible = true
+			_show(Screen.CONTROLS)
 		2:
+			_show(Screen.OPTIONS)
+		3:
 			get_tree().paused = false
 			_open = false
 			quit_to_menu.emit()
+
+
+func _on_option_activated(idx: int) -> void:
+	if idx == 3:
+		_show(Screen.MAIN)
+	else:
+		_on_option_changed(idx, 1)
+
+
+func _on_option_changed(idx: int, dir: int) -> void:
+	match idx:
+		0:
+			Settings.cycle_window(dir)
+		1:
+			Settings.screen_shake = not Settings.screen_shake
+			Settings.save()
+		2:
+			Settings.hud_hints = not Settings.hud_hints
+			Settings.save()
+	_refresh_options()

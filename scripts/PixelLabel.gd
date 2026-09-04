@@ -11,7 +11,7 @@ extends Control
 
 ## Must stay in sync with FONT_CHARS in tools/gen_art.py — a glyph is found
 ## purely by its index in this string.
-const CHARS := "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,:!?'-()/ "
+const CHARS := "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,:!?'-()/ +"
 const CELL := 6          # glyph cell pitch in the sheet
 const GLYPH_W := 5
 const GLYPH_H := 7

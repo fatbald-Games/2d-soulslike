@@ -9,6 +9,7 @@ extends CanvasLayer
 
 const GHOST_DELAY := 0.35        # how long the ghost hangs before it drains
 const GHOST_SPEED := 0.55        # fraction of the bar it sheds per second
+const HINT_HOLD := 7.0           # seconds the control hint stays up
 
 var _hp_fill: ColorRect
 var _hp_edge: ColorRect
@@ -23,6 +24,7 @@ var _died: PixelLabel
 var _area: PixelLabel
 var _inscription: PixelLabel
 var _area_tween: Tween
+var _hint: PixelLabel
 var _shown_text := ""
 
 var _hp_ratio := 1.0
@@ -33,6 +35,13 @@ var _sp_channel: Vector2
 
 
 func _ready() -> void:
+	Settings.load_once()
+	# darkens the screen edges; added first so all HUD art draws on top of it
+	var vig := TextureRect.new()
+	vig.texture = UiTheme.tex("vignette.png")
+	vig.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(vig)
+
 	var hp_pos := Vector2(8, 8)
 	var sp_pos := Vector2(8, 8 + UiTheme.HP_FRAME.y + 2)
 	_hp_channel = UiTheme.channel_size(UiTheme.HP_FRAME, UiTheme.HP_CAP)
@@ -67,10 +76,16 @@ func _ready() -> void:
 	add_child(_souls)
 	set_souls(0)
 
-	var hint := PixelLabel.make("A D MOVE   SPACE JUMP   J ATTACK   K ROLL   ESC PAUSE",
-			1, Color(0.353, 0.322, 0.290, 0.55))
-	hint.position = Vector2(8, UiTheme.VIEW.y - 12)
-	add_child(hint)
+	# The hint used to sit there forever and just added noise. Now it introduces
+	# the controls and fades out; OPTIONS can switch it off entirely.
+	if Settings.hud_hints:
+		_hint = PixelLabel.make("A D MOVE   SPACE JUMP   W S CLIMB   J ATTACK   K ROLL",
+				1, Color(0.353, 0.322, 0.290, 0.60))
+		_hint.center_on(UiTheme.VIEW.x * 0.5, UiTheme.VIEW.y - 13)
+		add_child(_hint)
+		var fade := create_tween()
+		fade.tween_interval(HINT_HOLD)
+		fade.tween_property(_hint, "modulate:a", 0.0, 1.4)
 
 	# --- death overlay, hidden until it is needed ---
 	_fade = ColorRect.new()
