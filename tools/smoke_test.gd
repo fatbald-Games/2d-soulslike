@@ -37,6 +37,13 @@ var _souls_at_death := 0
 var _hp_max0 := 0.0
 var _speed0 := 0.0
 var _bar0 := 0.0
+var _sword_time := 0.0
+var _sword_dmg := 0.0
+var _arrows_seen := 0
+var _guard_hp0 := 0.0
+var _guard_sp0 := 0.0
+var _shield_pickup: Dictionary = {}
+var _weapon0 := 0
 
 
 func _initialize() -> void:
@@ -91,7 +98,8 @@ func _release(action: String) -> void:
 
 
 func _release_all() -> void:
-	for a in ["left", "right", "up", "down", "jump", "attack", "dodge", "heal", "interact"]:
+	for a in ["left", "right", "up", "down", "jump", "attack", "dodge", "heal",
+			"interact", "block", "swap"]:
 		Input.action_release(a)
 
 
@@ -120,9 +128,10 @@ func _physics_process(_delta: float) -> bool:
 		8: _phase_flask()
 		9: _phase_bonfire()
 		10: _phase_level_up()
-		11: _phase_hud()
-		12: _phase_damage_and_death()
-		13: _phase_respawn()
+		11: _phase_weapons()
+		12: _phase_hud()
+		13: _phase_damage_and_death()
+		14: _phase_respawn()
 		_: return _finish()
 	return false
 
@@ -177,7 +186,7 @@ func _phase_attack_costs_stamina() -> void:
 		_ok("attack enters ATTACK state", _player.state == Player.State.ATTACK,
 				"state=%d" % _player.state)
 		_ok("attack drains stamina",
-				_player.stamina <= _stamina0 - Player.ATTACK_COST + 0.01,
+				_player.stamina <= _stamina0 - _player.attack_cost() + 0.01,
 				"%.1f -> %.1f" % [_stamina0, _player.stamina])
 		return
 	# ATTACK_TIME is 0.36s -> ~22 physics frames at 60 Hz
@@ -572,6 +581,192 @@ func _phase_level_up() -> void:
 		return
 	if _phase_frame >= 24:
 		_ok("leaving the bonfire unpauses the game", not paused)
+		_next()
+
+
+## Six weapons that all played the same would be six names. These checks are
+## about the DIFFERENCES — reach, damage, swing time, stamina — plus the two
+## that do not swing at all and the one that can say no.
+func _phase_weapons() -> void:
+	if _phase_frame == 0:
+		_release_all()
+		_sword_time = _player.attack_time
+		_sword_dmg = _player.swing_damage()
+		_ok("the armoury describes six weapons", Weapons.DEFS.size() == 6,
+				"%d weapons" % Weapons.DEFS.size())
+		_ok("the run starts on the longsword", Run.weapon == Weapons.SWORD,
+				"weapon=%d" % Run.weapon)
+
+		# every weapon but the starting blade has to be somewhere you can reach;
+		# the level generator proves reachability, this proves they were PLACED
+		var placed := {}
+		for e in LevelMap.ENTITIES:
+			if e["kind"] == "weapon":
+				placed[e["weapon"]] = true
+		var missing: Array = []
+		for d in Weapons.DEFS:
+			if d["id"] != Weapons.START and not placed.has(d["id"]):
+				missing.append(d["id"])
+		_ok("every other weapon lies somewhere in the keep", missing.is_empty(),
+				"missing %s" % str(missing))
+		_ok("the level builds a pickup for each of them",
+				_main._pickups.size() == Weapons.DEFS.size() - 1,
+				"%d pickups" % _main._pickups.size())
+
+		# walk onto the shield and take it, the way a player would
+		for p in _main._pickups:
+			if p["id"] == "shield":
+				_shield_pickup = p
+		_ok("the shield is one of them", not _shield_pickup.is_empty())
+		if _shield_pickup.is_empty():
+			_next()
+			return
+		_player.global_position = _shield_pickup["pos"] + Vector2(0, 8)
+		_player.velocity = Vector2.ZERO
+		_press("interact")
+		return
+
+	if _phase_frame == 3:
+		_release_all()
+		_ok("picking a weapon up adds it to the armoury", Run.has_weapon("shield"))
+		_ok("picking a weapon up equips it on the spot",
+				Run.weapon == Weapons.SHIELD, "weapon=%d" % Run.weapon)
+		_ok("the pickup is gone once taken",
+				not is_instance_valid(_shield_pickup["node"]))
+		_ok("the HUD names what he is holding",
+				_main.hud._weapon.text == Weapons.name_of(Weapons.SHIELD),
+				_main.hud._weapon.text)
+		_ok("the shield brings a guard animation with it",
+				_player.sprite.sprite_frames.has_animation("block"))
+
+		_player.global_position = Vector2(72.0, _main.floor_top)
+		_player.velocity = Vector2.ZERO
+		_player.health = _player.health_max
+		_player.stamina = _player.stamina_max
+		_player._invuln = 0.0
+		return
+
+	if _phase_frame == 5:
+		Run.weapons["axe"] = true
+		_ok("equipping a found weapon takes", _player.equip(Weapons.AXE))
+		return
+
+	if _phase_frame == 6:
+		_ok("the axe hits harder than the sword",
+				_player.swing_damage() > _sword_dmg,
+				"%.0f -> %.0f" % [_sword_dmg, _player.swing_damage()])
+		_ok("the axe swings slower than the sword",
+				_player.attack_time > _sword_time,
+				"%.2fs -> %.2fs" % [_sword_time, _player.attack_time])
+		_ok("the axe costs more stamina than the sword",
+				_player.attack_cost() > float(Weapons.def(Weapons.SWORD)["stamina"]),
+				"%.0f" % _player.attack_cost())
+		Run.weapons["spear"] = true
+		_player.equip(Weapons.SPEAR)
+		return
+
+	if _phase_frame == 7:
+		_ok("the spear reaches further than the sword",
+				float(_player.weapon()["reach"]) > Player.ATTACK_REACH,
+				"%.0f px" % float(_player.weapon()["reach"]))
+		_ok("the spear pays for that reach in damage",
+				_player.swing_damage() < _sword_dmg,
+				"%.0f vs %.0f" % [_player.swing_damage(), _sword_dmg])
+
+		# --- the bow: a weapon that never touches anything ---
+		Run.weapons["bow"] = true
+		_player.equip(Weapons.BOW)
+		_player.stamina = _player.stamina_max
+		_player.facing = 1
+		_hollow = _main._spawn_hollow(Vector2(_player.global_position.x + 74.0,
+				_main.floor_top))
+		_hollow_hp0 = _hollow.health
+		_press("attack")
+		return
+
+	if _phase_frame == 9:
+		_release("attack")
+		return
+
+	if _phase_frame == 22:
+		for c in _main.get_children():
+			if c is Projectile:
+				_arrows_seen += 1
+		return
+
+	if _phase_frame == 55:
+		_ok("the bow puts an arrow in the world", _arrows_seen > 0,
+				"%d arrows" % _arrows_seen)
+		_ok("an arrow damages what it hits",
+				is_instance_valid(_hollow) and _hollow.health < _hollow_hp0,
+				"%.1f -> %.1f" % [_hollow_hp0,
+						_hollow.health if is_instance_valid(_hollow) else -1.0])
+		if is_instance_valid(_hollow):
+			_hollow.queue_free()
+
+		# --- the shield: the only weapon that can refuse a hit ---
+		_player.equip(Weapons.SHIELD)
+		_player.global_position = Vector2(72.0, _main.floor_top)
+		_player.velocity = Vector2.ZERO
+		_player.health = _player.health_max
+		_player.stamina = _player.stamina_max
+		_player._invuln = 0.0
+		_player.facing = 1
+		_press("block")
+		return
+
+	if _phase_frame == 58:
+		_ok("holding L raises the shield",
+				_player.state == Player.State.BLOCK, "state=%d" % _player.state)
+		_guard_hp0 = _player.health
+		_guard_sp0 = _player.stamina
+		_player.take_damage(Hollow.DAMAGE,
+				_player.global_position + Vector2(30, 0))
+		return
+
+	if _phase_frame == 59:
+		_ok("a guarded blow costs far less health",
+				_player.health > _guard_hp0 - Hollow.DAMAGE * 0.5,
+				"%.1f -> %.1f" % [_guard_hp0, _player.health])
+		_ok("a guarded blow costs stamina instead",
+				_player.stamina < _guard_sp0,
+				"%.1f -> %.1f" % [_guard_sp0, _player.stamina])
+		# a hit from BEHIND the shield is not a hit the shield stops
+		_player._invuln = 0.0
+		_guard_hp0 = _player.health
+		_player.stamina = 4.0
+		_player.take_damage(Hollow.DAMAGE,
+				_player.global_position + Vector2(30, 0))
+		return
+
+	if _phase_frame == 60:
+		_ok("running the stamina out breaks the guard",
+				_player.health <= _guard_hp0 - Hollow.DAMAGE + 0.01,
+				"%.1f -> %.1f" % [_guard_hp0, _player.health])
+		_release_all()
+		_weapon0 = Run.weapon
+		return
+
+	# the broken guard staggers him for HURT_TIME; he cannot swap out of that,
+	# which is the point of it, so wait him out first
+	if _phase_frame == 82:
+		_press("swap")
+		return
+
+	if _phase_frame == 84:
+		_release_all()
+		_ok("TAB swaps to another weapon he owns", Run.weapon != _weapon0,
+				"weapon=%d" % Run.weapon)
+		_ok("swapping never lands on a weapon he has not found",
+				Run.has_weapon(Weapons.DEFS[Run.weapon]["id"]))
+		return
+
+	if _phase_frame >= 88:
+		# leave the following phases on the baseline blade
+		_player.equip(Weapons.SWORD)
+		_player.health = _player.health_max
+		_player.stamina = _player.stamina_max
+		_player._invuln = 0.0
 		_next()
 
 

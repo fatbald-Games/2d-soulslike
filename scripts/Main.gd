@@ -9,6 +9,7 @@ const S := "res://assets/sprites/"
 const RUNE_READ_RANGE := 26.0        # how close you must stand to read a stone
 const BONFIRE_RANGE := 28.0          # how close you must stand to rest
 const SOUL_PICKUP_RANGE := 20.0
+const PICKUP_RANGE := 22.0           # how close you must stand to take a weapon
 const SHAKE_DECAY := 7.0
 
 var level: Level
@@ -21,6 +22,7 @@ var _runes: Array = []               # [{node, pos, text}]
 var _bonfires: Array = []            # [{pos, key, sprite, light, embers, lit}]
 var bonfire_menu                     # BonfireMenu.gd instance
 var _soul_orb: Node2D = null
+var _pickups: Array = []             # [{node, pos, id, idx}]
 var _near_bonfire: Dictionary = {}
 var _camera: Camera2D
 var _shake := 0.0
@@ -61,6 +63,10 @@ func _setup_input() -> void:
 	_action("dodge", [KEY_K, KEY_SHIFT])
 	_action("heal", [KEY_Q])
 	_action("interact", [KEY_E])
+	# the shield is the only weapon that can guard, so BLOCK is always bound and
+	# simply does nothing while he is carrying something else
+	_action("block", [KEY_L], MOUSE_BUTTON_RIGHT)
+	_action("swap", [KEY_TAB, KEY_R])
 
 
 func _action(action_name: String, keys: Array, mouse: int = -1) -> void:
@@ -111,6 +117,8 @@ func _spawn_entities() -> void:
 						Color(1.0, 0.52, 0.20), 1.5, 0.85)
 			"rune":
 				_rune(foot, e["text"], Run.key(tx, ty))
+			"weapon":
+				_weapon_pickup(foot, e["weapon"])
 
 
 func _box(parent: Node, pos: Vector2, size: Vector2) -> void:
@@ -184,6 +192,35 @@ func _rune(foot: Vector2, text: String, key: String) -> void:
 	s.position = foot + Vector2(0, -5)
 	add_child(s)
 	_runes.append({"node": s, "pos": s.position, "text": text, "key": key})
+
+
+## A weapon lying where its owner dropped it. Not a chest and not a shop: you
+## find it by going somewhere you have not been, which is the whole point — it
+## is the one kind of progress that changes how the game PLAYS.
+func _weapon_pickup(foot: Vector2, id: String) -> void:
+	if Run.has_weapon(id):
+		return                           # already carried; nothing left to find
+	var idx := Weapons.index_of(id)
+	if idx < 0:
+		return
+	var s := Sprite2D.new()
+	s.texture = SpriteUtil.frame_of(_tex("weapon_icons.png"), idx, 14, 14)
+	var base := foot + Vector2(0, -13)
+	s.position = base
+	add_child(s)
+	_light(s, Vector2.ZERO, Color(0.92, 0.84, 0.56), 0.85, 0.40, 0.0)
+
+	# It hovers: a weapon lying flat on a dark floor is invisible from a screen
+	# away. The tween is created FROM the sprite, so taking the weapon (and
+	# freeing it) kills the tween with it — a looping tween whose target is gone
+	# spins forever and the engine says so.
+	var tw := s.create_tween().set_loops()
+	tw.tween_property(s, "position:y", base.y - 3.0, 1.2) \
+			.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	tw.tween_property(s, "position:y", base.y, 1.2) \
+			.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+
+	_pickups.append({"node": s, "pos": base, "id": id, "idx": idx})
 
 
 func _anim_prop(anim_name: String, fw: int, fh: int, idx: Array, fps: float, pos: Vector2) -> void:
@@ -262,14 +299,7 @@ func _spawn_player(pos: Vector2) -> Player:
 
 	var s := SpriteUtil.make_sprite()
 	s.name = "Sprite"
-	var sf := SpriteFrames.new()
-	SpriteUtil.add_anim(sf, "idle", _tex("hero_idle.png"), [0, 1, 2, 3], 6.0, true)
-	SpriteUtil.add_anim(sf, "run", _tex("hero_run.png"), [0, 1, 2, 3, 4, 5], 10.0, true)
-	SpriteUtil.add_anim(sf, "attack", _tex("hero_attack.png"), [0, 1, 2, 3],
-			4.0 / Player.ATTACK_TIME_BASE, false)
-	SpriteUtil.add_anim(sf, "roll", _tex("hero_roll.png"), [0, 1, 2, 3],
-			4.0 / Player.ROLL_TIME, false)
-	s.sprite_frames = sf
+	s.sprite_frames = _weapon_frames(Run.weapon)
 	s.animation = "idle"
 	p.add_child(s)
 
@@ -277,6 +307,65 @@ func _spawn_player(pos: Vector2) -> Player:
 	_light(p, Vector2(0, -16), Color(0.72, 0.80, 1.0), 0.42, 0.34, 0.0)
 	add_child(p)
 	return p
+
+
+## Idle, run and attack all come off the equipped weapon's own sheets, so the
+## knight is visibly holding the axe while standing still — not only mid-swing.
+## The roll is a tucked ball with no weapon in it, so every weapon shares it.
+func _weapon_frames(idx: int) -> SpriteFrames:
+	var id: String = Weapons.def(idx)["id"]
+	var sf := SpriteFrames.new()
+	SpriteUtil.add_anim(sf, "idle", _tex("hero_idle_%s.png" % id), [0, 1, 2, 3], 6.0, true)
+	SpriteUtil.add_anim(sf, "run", _tex("hero_run_%s.png" % id),
+			[0, 1, 2, 3, 4, 5], 10.0, true)
+	SpriteUtil.add_anim(sf, "attack", _tex("hero_attack_%s.png" % id), [0, 1, 2, 3],
+			4.0 / Player.ATTACK_TIME_BASE, false)
+	SpriteUtil.add_anim(sf, "roll", _tex("hero_roll.png"), [0, 1, 2, 3],
+			4.0 / Player.ROLL_TIME, false)
+	SpriteUtil.add_anim(sf, "block", _tex("hero_block.png"), [0, 1], 2.5, true)
+	return sf
+
+
+func _on_weapon_changed(idx: int) -> void:
+	var s: AnimatedSprite2D = player.sprite
+	var playing := s.animation
+	s.sprite_frames = _weapon_frames(idx)
+	s.play(playing if s.sprite_frames.has_animation(playing) else "idle")
+	hud.set_weapon(idx)
+
+
+## An arrow or a bolt, put into the WORLD rather than parented to the player —
+## it has to keep flying after he has rolled away or died.
+func _on_shot(from: Vector2, dir: int, damage: float, widx: int) -> void:
+	var w := Weapons.def(widx)
+	if not w.has("shot"):
+		return
+	var spec: Dictionary = w["shot"]
+	var pr := Projectile.new()
+	pr.dir = dir
+	pr.speed = float(spec["speed"])
+	pr.drop = float(spec["drop"])
+	pr.life = float(spec["life"])
+	pr.damage = damage
+	pr.knock = float(w["knock"])
+	pr.position = from
+	var s := Sprite2D.new()
+	s.texture = _tex(spec["sprite"])
+	s.centered = true
+	s.flip_h = dir < 0
+	pr.add_child(s)
+	pr.struck.connect(_on_hit_landed)
+	add_child(pr)
+	_add_shake(0.6)
+
+
+## A blow turned on the shield: sparks, and a much harder jolt if the guard
+## actually broke, because that is the moment you need to notice.
+func _on_guarded(at: Vector2, broke: bool) -> void:
+	_on_hit_landed(at + Vector2(player.facing * 10.0, -14.0))
+	if broke:
+		_add_shake(3.0)
+		hud.show_area("GUARD BROKEN")
 
 
 func _spawn_hollow(pos: Vector2) -> Hollow:
@@ -314,7 +403,14 @@ func _build_bonfire_menu() -> CanvasLayer:
 	add_child(b)
 	b.rested.connect(_on_rested)
 	b.levelled.connect(_on_levelled)
+	b.equipped.connect(_on_equipped)
 	return b
+
+
+## Swapping at the fire goes through the same path as swapping in the field, so
+## there is only one place that can forget to rebuild the sprite sheets.
+func _on_equipped(idx: int) -> void:
+	player.equip(idx)
 
 
 func _on_levelled() -> void:
@@ -344,11 +440,15 @@ func _wire_hud() -> void:
 	player.flask_changed.connect(func(c: int, _m: int) -> void: Run.flask = c)
 	player.flask_changed.connect(hud.set_flask)
 	player.hit_landed.connect(_on_hit_landed)
+	player.weapon_changed.connect(_on_weapon_changed)
+	player.shot.connect(_on_shot)
+	player.guarded.connect(_on_guarded)
 	player.died.connect(_on_player_died)
 	hud.set_health(player.health, player.health_max)
 	hud.set_stamina(player.stamina, player.stamina_max)
 	hud.set_souls(player.souls)
 	hud.set_flask(player.flask, Player.FLASK_MAX)
+	hud.set_weapon(Run.weapon)
 
 
 func _on_player_died() -> void:
@@ -454,7 +554,13 @@ func _process(delta: float) -> void:
 	if player != null and is_instance_valid(player):
 		_track_area()
 		_track_runes()
-		_track_bonfire()
+		# one prompt line, and several things that might want it: the fire wins,
+		# then whatever is lying on the floor
+		var claimed := _track_bonfire()
+		if _track_pickups(claimed):
+			claimed = true
+		if not claimed:
+			hud.show_prompt("")
 		_track_soul_orb()
 
 
@@ -473,21 +579,53 @@ func _tick_shake(delta: float) -> void:
 
 ## Resting is the whole structure of the game: it heals, refills the flask,
 ## puts every hollow back, and makes this fire the place you respawn.
-func _track_bonfire() -> void:
+func _track_bonfire() -> bool:
 	_near_bonfire = {}
 	for b in _bonfires:
 		if player.global_position.distance_to(b["pos"]) < BONFIRE_RANGE:
 			_near_bonfire = b
 			break
 	if _near_bonfire.is_empty():
-		hud.show_prompt("")
-		return
+		return false
 	hud.show_prompt("E   BONFIRE" if _near_bonfire["lit"] else "E   LIGHT BONFIRE")
 	if Input.is_action_just_pressed("interact") and player.state != Player.State.DEAD:
 		_light_bonfire(_near_bonfire)
 		Run.rest_at(_near_bonfire["pos"])
 		hud.show_prompt("")
 		bonfire_menu.open()
+		return false
+	return true
+
+
+## Picking a weapon up equips it on the spot. Making you walk back to a fire to
+## try what you just found would put a menu between you and the only moment this
+## game has that feels like a reward.
+func _track_pickups(claimed: bool) -> bool:
+	var took := false
+	for p in _pickups:
+		var node: Sprite2D = p["node"]
+		if not is_instance_valid(node):
+			continue
+		if player.global_position.distance_to(p["pos"]) > PICKUP_RANGE:
+			continue
+		if not claimed and not took:
+			hud.show_prompt("E   TAKE  %s" % Weapons.name_of(p["idx"]))
+			took = true
+		if Input.is_action_just_pressed("interact") \
+				and player.state != Player.State.DEAD:
+			_take_weapon(p)
+			return false
+	return took
+
+
+func _take_weapon(p: Dictionary) -> void:
+	Run.find_weapon(p["id"])
+	player.equip(p["idx"])
+	(p["node"] as Sprite2D).queue_free()
+	_pickups.erase(p)
+	hud.show_prompt("")
+	hud.show_area("FOUND  %s" % Weapons.name_of(p["idx"]))
+	_add_shake(1.5)
 
 
 func _on_rested() -> void:

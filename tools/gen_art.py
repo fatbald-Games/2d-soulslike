@@ -640,19 +640,184 @@ def _arc(img, px, py, r, a0, a1, col, inner=None):
                  py + int(round(sa * (r - 2))), inner)
 
 
+# =============================================================== WEAPONS =====
+# Six weapons, every one of them drawn procedurally out of the knight's hand so
+# that idle, run and attack all carry the SAME piece of steel.
+#
+# At 44x32 there are maybe twenty pixels to characterise a weapon with, so what
+# separates them is silhouette, not detail: the axe is a crescent on a stick,
+# the spear is longer than the knight is tall, the bow is a curve, the crossbow
+# is a cross, the shield is a slab. You should be able to tell what he is
+# holding from across the room, at 1x.
+
+WEAPON_KINDS = ["sword", "axe", "spear", "bow", "crossbow", "shield"]
+
+
+def _across(ang):
+    """The 1px offset that thickens a line ACROSS its own direction, so
+    diagonals come out as clean double lines instead of a hatched mess."""
+    if abs(math.cos(ang)) >= abs(math.sin(ang)):
+        return 0, 1            # mostly horizontal -> thicken vertically
+    return 1, 0                # mostly vertical   -> thicken horizontally
+
+
+def _perp(ang):
+    """True perpendicular, as floats — for limbs that must stay square to the
+    aim at any angle rather than snapping to the pixel grid."""
+    return -math.sin(ang), math.cos(ang)
+
+
+def _tip(px, py, ang, length):
+    return (px + int(round(math.cos(ang) * length)),
+            py + int(round(math.sin(ang) * length)))
+
+
+def _shaft(img, px, py, ang, length, col, hi):
+    """Two-pixel haft from the hand outward. Returns the tip."""
+    tx, ty = _tip(px, py, ang, length)
+    ox, oy = _across(ang)
+    _line(img, px, py, tx, ty, hi)
+    _line(img, px + ox, py + oy, tx + ox, ty + oy, col)
+    return tx, ty
+
+
+def _paste_grid(img, rows, x, y, pal=PAL):
+    """Blit a character grid at (x,y), clipped — the weapon poses swing things
+    right up to the edge of the frame and off it."""
+    for gy, row in enumerate(rows):
+        for gx, ch in enumerate(row):
+            col = pal.get(ch, T)
+            if col[3]:
+                putp(img, x + gx, y + gy, col)
+
+
+def _axe(img, px, py, ang, length):
+    """Great axe: a heavy crescent head on a short wooden haft."""
+    tx, ty = _shaft(img, px, py, ang, length, PAL['l'], PAL['L'])
+    hx, hy = _tip(px, py, ang, length - 3)
+    _arc(img, hx, hy, 5, ang - 0.95, ang + 0.95, PAL['S'], inner=PAL['s'])
+    putp(img, tx, ty, PAL['s'])                  # a spike past the head
+    ox, oy = _across(ang)
+    for g in (-1, 1):                            # brass collar at the grip
+        putp(img, px + g * oy, py + g * ox, PAL['g'])
+
+
+def _spear(img, px, py, ang, length):
+    """Winged spear: reach at the cost of everything else."""
+    _shaft(img, px, py, ang, length, PAL['l'], PAL['L'])
+    ox, oy = _across(ang)
+    for k in range(4):                           # slim leaf head
+        hx, hy = _tip(px, py, ang, length - k)
+        putp(img, hx, hy, PAL['S'])
+        if k:
+            putp(img, hx + ox, hy + oy, PAL['s'])
+    wx, wy = _tip(px, py, ang, length - 5)       # the wings that name it
+    putp(img, wx + ox * 2, wy + oy * 2, PAL['s'])
+    putp(img, wx - ox, wy - oy, PAL['s'])
+
+
+def _bow(img, px, py, ang, pull=0.0, arrow=True):
+    """Hunting bow: the stave bows away from the archer, the string behind it.
+    `pull` is how far back the nock is drawn, in pixels."""
+    cx, cy = _tip(px, py, ang, 2)
+    _arc(img, cx, cy, 7, ang - 1.25, ang + 1.25, PAL['L'], inner=PAL['l'])
+    limbs = [(cx + int(round(math.cos(ang + s * 1.25) * 7)),
+              cy + int(round(math.sin(ang + s * 1.25) * 7))) for s in (-1, 1)]
+    nock = _tip(px, py, ang, -pull)
+    for lx, ly in limbs:
+        _line(img, lx, ly, nock[0], nock[1], PAL['N'])
+    if arrow:
+        ax, ay = _tip(nock[0], nock[1], ang, 13)
+        _line(img, nock[0], nock[1], ax, ay, PAL['s'])
+        putp(img, ax, ay, PAL['S'])
+
+
+def _crossbow(img, px, py, ang, loaded=True, flash=False):
+    """Iron crossbow: a stock along the aim, short steel limbs square to it."""
+    tx, ty = _shaft(img, px, py, ang, 11, PAL['l'], PAL['L'])
+    fx, fy = _tip(px, py, ang, 8)
+    ux, uy = _perp(ang)
+    limbs = []
+    for s in (-1, 1):
+        ex = fx + int(round(ux * 5 * s))
+        ey = fy + int(round(uy * 5 * s))
+        _line(img, fx, fy, ex, ey, PAL['d'])
+        putp(img, ex, ey, PAL['s'])
+        limbs.append((ex, ey))
+    # drawn back over the nut when loaded, snapped forward once it has fired
+    sx, sy = _tip(px, py, ang, 4 if loaded else 7)
+    for lx, ly in limbs:
+        _line(img, lx, ly, sx, sy, PAL['N'])
+    if loaded:
+        bx, by = _tip(px, py, ang, 15)
+        _line(img, sx, sy, bx, by, PAL['S'])
+    if flash:
+        _arc(img, tx, ty, 3, ang - 0.9, ang + 0.9, PAL['y'])
+
+
+# A heater shield, seen edge-on-ish from the side: a slab with a brass boss.
+SHIELD_GRID = [
+    ".oooooo.",
+    "oDDDDDDo",
+    "oDCCCCDo",
+    "oDCgCCDo",
+    "oDCCCCDo",
+    "oDDDDDDo",
+    ".oDDDDo.",
+    ".oDDDDo.",
+    "..oDDo..",
+    "...oo...",
+]
+
+
+def _shield(img, px, py, forward=0, raised=False):
+    _paste_grid(img, SHIELD_GRID, px - 2 + forward, py - (6 if raised else 3))
+
+
+def _draw_weapon(img, kind, px, py, ang, length):
+    """Whichever weapon, swung the same way — one call site for every pose."""
+    if kind == "axe":
+        _axe(img, px, py, ang, length)
+    elif kind == "spear":
+        _spear(img, px, py, ang, length)
+    else:
+        _blade(img, px, py, ang, length)
+
+
+def _carry(f, kind, hx, hy, moving=False):
+    """The weapon as it is CARRIED, in the idle and run frames."""
+    if kind == "sword":
+        _blade(f, hx, hy, REST_ANGLE + (0.15 if moving else 0.0), 12 if moving else 11)
+    elif kind == "axe":
+        _axe(f, hx, hy, REST_ANGLE + (0.20 if moving else 0.05), 10)
+    elif kind == "spear":
+        # shouldered upright: the one weapon you can spot by its silhouette
+        _spear(f, hx - 1, hy - 1, -1.45 + (0.12 if moving else 0.0), 16)
+    elif kind == "bow":
+        _bow(f, hx, hy - 1, 1.30, pull=0.0, arrow=False)
+    elif kind == "crossbow":
+        _crossbow(f, hx - 2, hy, 0.55, loaded=True)
+    elif kind == "shield":
+        _shield(f, hx, hy, forward=0, raised=False)
+
+
 # ------------------------------------------------------------------ idle -----
-def hero_idle32():
+def hero_idle_w(kind):
     body = grid_to_img(PLAYER)
     frames = []
     for bob in (0, 1, 1, 0):        # slow armoured breathing
         f = frame40(body, BODY_OX, BODY_OY + bob)
-        _blade(f, REST_HAND[0], REST_HAND[1] + bob, REST_ANGLE, 12)
+        _carry(f, kind, REST_HAND[0], REST_HAND[1] + bob)
         frames.append(f)
     return frames
 
 
+def hero_idle32():
+    return hero_idle_w("sword")
+
+
 # ------------------------------------------------------------------- run -----
-def hero_run32():
+def hero_run_w(kind):
     upper = grid_to_img(PLAYER_UPPER)
     frames = []
     N = 6
@@ -676,29 +841,141 @@ def hero_run32():
             for bxo in (0, 1, 2):
                 putp(f, lx + bxo, by, PAL['B'])
                 putp(f, lx + bxo, by + 1, PAL['A'])
-        _blade(f, REST_HAND[0], REST_HAND[1] + bob, REST_ANGLE + 0.15, 11)
+        _carry(f, kind, REST_HAND[0], REST_HAND[1] + bob, moving=True)
         frames.append(f)
     return frames
+
+
+def hero_run32():
+    return hero_run_w("sword")
 
 
 # ---------------------------------------------------------------- attack -----
-def hero_attack32():
+# (blade angle, blade length, trail: 0 none / 1 crescent / 2 straight, lunge px)
+ATTACK_SPECS = {
+    # overhead cut: wind up behind the shoulder, come down through the target
+    "sword": [(-2.15, 12, 0, 0), (-1.05, 13, 0, 0), (0.30, 14, 1, 2), (1.15, 12, 0, 1)],
+    # the axe winds up FURTHER and lands HARDER — the extra frame of travel is
+    # what the animation has to sell in place of the damage number
+    "axe": [(-2.60, 11, 0, -1), (-1.75, 11, 0, -1), (0.55, 12, 1, 4), (1.30, 11, 0, 2)],
+    # the spear does not swing at all: it retracts, then goes straight out
+    "spear": [(0.14, 10, 0, -1), (0.10, 8, 0, -2), (0.00, 20, 2, 4), (0.06, 15, 0, 1)],
+}
+
+
+def hero_attack_w(kind):
     body = grid_to_img(PLAYER)
     frames = []
-    # (blade angle, blade length, slash arc?, body lunge in px)
-    specs = [(-2.15, 12, False, 0),   # 0 wind-up, blade back over the shoulder
-             (-1.05, 13, False, 0),   # 1 raised
-             (0.30, 14, True, 2),     # 2 strike — full extension + slash arc
-             (1.15, 12, False, 1)]    # 3 recovery
-    for ang, length, slash, lunge in specs:
+
+    if kind in ATTACK_SPECS:
+        for ang, length, trail, lunge in ATTACK_SPECS[kind]:
+            f = frame40(body, BODY_OX + lunge, BODY_OY)
+            px, py = HAND[0] + lunge, HAND[1] - 1
+            if trail == 1:
+                _arc(f, px, py, 13 if kind == "sword" else 16,
+                     -0.55, 0.95, PAL['W'], inner=PAL['S'])
+            elif trail == 2:
+                sx, sy = _tip(px, py, ang, length + 3)
+                _line(f, px + 9, py - 2, sx, sy - 2, PAL['W'])
+            _draw_weapon(f, kind, px, py, ang, length)
+            frames.append(f)
+        return frames
+
+    if kind == "bow":
+        # nock -> draw -> loose (the arrow is gone; it is a real one now) -> re-nock
+        for pull, arrow, lunge, flash in ((0, True, 0, False), (4, True, 0, False),
+                                          (0, False, 1, True), (0, True, 0, False)):
+            f = frame40(body, BODY_OX + lunge, BODY_OY)
+            px, py = HAND[0] + lunge - 1, HAND[1] - 3
+            _bow(f, px, py, -0.06, pull=pull, arrow=arrow)
+            if flash:
+                _arc(f, px, py, 9, -0.5, 0.5, PAL['W'])
+            frames.append(f)
+        return frames
+
+    if kind == "crossbow":
+        # levelled -> levelled -> the shot, kicking back -> spanning it again
+        for loaded, flash, lunge in ((True, False, 0), (True, False, 1),
+                                     (False, True, -2), (False, False, 0)):
+            f = frame40(body, BODY_OX + lunge, BODY_OY)
+            _crossbow(f, HAND[0] + lunge - 2, HAND[1] - 3, -0.04,
+                      loaded=loaded, flash=flash)
+            frames.append(f)
+        return frames
+
+    # shield bash: brought in tight, then driven forward off the front foot
+    for forward, raised, lunge, trail in ((-2, True, -1, False), (-1, True, 0, False),
+                                          (5, False, 4, True), (1, True, 1, False)):
         f = frame40(body, BODY_OX + lunge, BODY_OY)
         px, py = HAND[0] + lunge, HAND[1] - 1
-        if slash:
-            _arc(f, px, py, 13, -0.55, 0.95, PAL['W'], inner=PAL['S'])
-        _blade(f, px, py, ang, length)
+        if trail:
+            _arc(f, px, py, 12, -0.55, 0.55, PAL['W'])
+        _shield(f, px, py, forward, raised)
         frames.append(f)
     return frames
 
+
+def hero_attack32():
+    return hero_attack_w("sword")
+
+
+# ----------------------------------------------------------------- block -----
+def hero_block():
+    """Braced behind the shield. Two frames so the guard breathes rather than
+    freezing solid the moment you raise it."""
+    frames = []
+    for bob in (0, 1):
+        body = grid_to_img(PLAYER)
+        f = frame40(body, BODY_OX - 1, BODY_OY + bob)
+        _shield(f, HAND[0] + 1, HAND[1] - 2 + bob, forward=3, raised=True)
+        frames.append(f)
+    return frames
+
+
+# ----------------------------------------------------------- projectiles -----
+# Fletching at the back, steel at the point, so the direction of travel reads
+# even at one pixel of motion blur.
+ARROW = [
+    "N..sssssssS",
+    "NNNsssssssS",
+    "N..sssssssS",
+]
+BOLT = [
+    "N.ddddSS",
+    "NNddddSS",
+    "N.ddddSS",
+]
+
+
+def arrow_sprite():
+    return grid_to_img(ARROW)
+
+
+def bolt_sprite():
+    return grid_to_img(BOLT)
+
+
+# --------------------------------------------------------------- pickups -----
+def weapon_icons():
+    """One 14x14 icon per weapon, drawn with the same primitives as the poses —
+    so what you pick up off the floor is recognisably what you then carry."""
+    frames = []
+    for kind in WEAPON_KINDS:
+        f = Image.new("RGBA", (14, 14), T)
+        if kind == "shield":
+            _paste_grid(f, SHIELD_GRID, 3, 2)
+        elif kind == "bow":
+            _bow(f, 4, 10, -0.85, pull=0.0, arrow=False)
+        elif kind == "crossbow":
+            _crossbow(f, 2, 12, -0.85, loaded=True)
+        elif kind == "spear":
+            _spear(f, 1, 12, -0.80, 15)
+        elif kind == "axe":
+            _axe(f, 2, 12, -0.85, 9)
+        else:
+            _blade(f, 2, 12, -0.85, 13)
+        frames.append(f)
+    return frames
 
 # ------------------------------------------------------------------ roll -----
 # One tucked "wheel" of cloak, rotated 4x -> a readable forward dodge-roll.
@@ -1583,23 +1860,31 @@ def main():
     save(hsheet(soul_orb_frames()), "soul_orb.png")
 
     # --- in-game combat animation sheets (44x32 frames, shared anchor) ---
+    # One idle / run / attack set PER WEAPON: the knight visibly carries what he
+    # has found, standing still or running, not only mid-swing.
+    for kind in WEAPON_KINDS:
+        save(hsheet(hero_idle_w(kind)), "hero_idle_%s.png" % kind)
+        save(hsheet(hero_run_w(kind)), "hero_run_%s.png" % kind)
+        save(hsheet(hero_attack_w(kind)), "hero_attack_%s.png" % kind)
+    save(hsheet(hero_block()), "hero_block.png")
+    save(hsheet(weapon_icons()), "weapon_icons.png")
+    save(arrow_sprite(), "arrow.png")
+    save(bolt_sprite(), "bolt.png")
+
     hi = hero_idle32()
     pf = hi                      # the idle frames double as the mood-shot hero
     hr = hero_run32()
     ha = hero_attack32()
     hl = hero_roll32()
     ho = hollow_frames()
-    save(hsheet(hi), "hero_idle.png")
-    save(hsheet(hr), "hero_run.png")
-    save(hsheet(ha), "hero_attack.png")
     save(hsheet(hl), "hero_roll.png")
     save(hsheet(ho), "hollow.png")
 
     # inspection previews (upscaled) — not used by the game
     tools_dir = os.path.dirname(os.path.abspath(__file__))
 
-    # combat contact sheet: one animation per row
-    anim_rows = [hi, hr, ha, hl, ho]
+    # combat contact sheet: one animation per row, one row per weapon swing
+    anim_rows = [hi, hr, hl, ho] + [hero_attack_w(k) for k in WEAPON_KINDS]
     cols = max(len(r) for r in anim_rows)
     cell = 46
     cc = Image.new("RGBA", (cols * cell, len(anim_rows) * cell), (22, 20, 28, 255))

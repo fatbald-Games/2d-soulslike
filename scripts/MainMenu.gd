@@ -139,7 +139,8 @@ func _build_main_page() -> CanvasLayer:
 
 
 func _build_controls_page() -> CanvasLayer:
-	var layer := _page("CONTROLS", 3, "ESC  BACK")
+	var layer := _page("CONTROLS", 3,
+			"THE ROLL IS INVULNERABLE IN ITS MIDDLE - TIME IT      ESC  BACK")
 
 	# size the panel to the widest name + key pair, so the two columns line up
 	var names: Array = []
@@ -147,15 +148,8 @@ func _build_controls_page() -> CanvasLayer:
 	for r in UiTheme.CONTROL_ROWS:
 		names.append(r[0])
 		keys.append(r[1])
-	var box := UiTheme.add_panel(layer, names, 1, 12, keys, 190.0)
-	var origin: Vector2 = box[0]
-	var size: Vector2 = box[1]
-	UiTheme.add_rows(layer, UiTheme.CONTROL_ROWS, origin, size.x)
-
-	var tip := PixelLabel.make("THE ROLL IS INVULNERABLE IN ITS MIDDLE - TIME IT", 1,
-			UiTheme.BONE_FAINT)
-	tip.center_on(UiTheme.VIEW.x * 0.5, origin.y + size.y + 8)
-	layer.add_child(tip)
+	var box := UiTheme.add_panel(layer, names, 1, UiTheme.ROW_STEP, keys, 190.0)
+	UiTheme.add_rows(layer, UiTheme.CONTROL_ROWS, box[0], (box[1] as Vector2).x)
 	return layer
 
 

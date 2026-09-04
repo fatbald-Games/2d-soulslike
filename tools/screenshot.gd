@@ -152,17 +152,55 @@ func _process(_delta: float) -> bool:
 		398:
 			_grab("14_levelup")
 		402:
-			_key(KEY_ESCAPE)
-			_key(KEY_ESCAPE)
+			_key(KEY_ESCAPE)               # back to the bonfire's own menu
+		406:
+			# three weapons found, so the armoury shows both halves of it:
+			# what is in hand, and what is still out there
+			Run.weapons["axe"] = true
+			Run.weapons["spear"] = true
+			Run.weapons["bow"] = true
+			current_scene.bonfire_menu._refresh_armoury()
+			_key(KEY_DOWN)                 # LEVEL UP -> ARMOURY
 		410:
-			_key(KEY_ESCAPE)               # pause
-		416:
-			_key(KEY_DOWN)
-		420:
-			_key(KEY_ENTER)                # PROGRESS
-		428:
-			_grab("15_progress")
+			_key(KEY_ENTER)
+		418:
+			_grab("16_armoury")
+		422:
+			_key(KEY_ESCAPE)
+		426:
+			_key(KEY_ESCAPE)
 		432:
+			_key(KEY_ESCAPE)               # pause
+		438:
+			_key(KEY_DOWN)
+		442:
+			_key(KEY_ENTER)                # PROGRESS
+		450:
+			_grab("15_progress")
+		454:
+			_key(KEY_ESCAPE)
+		458:
+			_key(KEY_ESCAPE)
+		462:
+			# the great axe still lying in the ossuary, waiting to be taken
+			_warp(94, 76)
+		486:
+			_grab("17_weapon_pickup")
+		490:
+			# and the same knight with the shield up, guarding
+			Run.weapons["shield"] = true
+			current_scene.player.equip(Weapons.SHIELD)
+			_warp(112, 76)
+		500:
+			Input.action_press("block")
+		512:
+			_grab("18_guard")
+		516:
+			Input.action_release("block")
+			current_scene.player.equip(Weapons.AXE)
+		528:
+			_grab("19_great_axe")
+		532:
 			print("done.")
 			quit(0)
 			return true

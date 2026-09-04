@@ -12,6 +12,10 @@ signal resumed
 signal quit_to_menu
 
 const ITEMS := ["RESUME", "PROGRESS", "CONTROLS", "OPTIONS", "QUIT TO TITLE"]
+## Twelve rows is the most that fits between the panel top and the footer band
+## at this pitch — see PROGRESS_STEP.
+const PROGRESS_ROWS := 12
+const PROGRESS_STEP := 9
 const OPTION_ITEMS := ["WINDOW", "SCREEN SHAKE", "HUD HINTS", "BACK"]
 
 enum Screen { MAIN, PROGRESS, CONTROLS, OPTIONS }
@@ -84,17 +88,17 @@ func _build_main() -> Control:
 func _build_progress() -> Control:
 	var page := _page("PROGRESS", "ESC  BACK")
 	_progress_rows = []
-	# sized for all eleven rows: passing one placeholder makes a panel one row tall
+	# sized for EVERY row: passing one placeholder makes a panel one row tall
 	var sizing: Array = []
-	for i in 11:
+	for i in PROGRESS_ROWS:
 		sizing.append("INSCRIPTIONS READ")
-	# step 10, not 11: at 11 the panel runs into the footer band
-	var box := UiTheme.add_panel(page, sizing, 1, 10, ["00 / 00"], 230.0)
+	var box := UiTheme.add_panel(page, sizing, 1, PROGRESS_STEP, ["00 / 00"], 230.0)
 	_progress_origin = box[0]
 	_progress_w = (box[1] as Vector2).x
-	# 11 rows: five stats, a rule, then five counters
-	for i in 11:
-		var y := _progress_origin.y + (UiTheme.MENU_Y0 - UiTheme.PANEL_Y) + i * 10
+	# five stats, a rule, then the counters
+	for i in PROGRESS_ROWS:
+		var y := _progress_origin.y + (UiTheme.MENU_Y0 - UiTheme.PANEL_Y) \
+				+ i * PROGRESS_STEP
 		var name_label := PixelLabel.make("", 1, UiTheme.BONE)
 		name_label.position = Vector2(_progress_origin.x + 14, y)
 		page.add_child(name_label)
@@ -113,6 +117,7 @@ func _refresh_progress() -> void:
 				"%d" % Run.stats[i]])
 	rows.append(["-", ""])
 	rows.append(["LEVEL", "%d" % Run.level()])
+	rows.append(["WEAPONS FOUND", "%d / %d" % [Run.owned().size(), t["weapons"]]])
 	rows.append(["BONFIRES LIT", "%d / %d" % [Run.lit_bonfires.size(), t["bonfires"]]])
 	rows.append(["REGIONS FOUND", "%d / %d" % [Run.seen_areas.size(), t["areas"]]])
 	rows.append(["INSCRIPTIONS READ", "%d / %d" % [Run.read_runes.size(), t["runes"]]])
@@ -140,7 +145,7 @@ func _build_controls() -> Control:
 	for r in UiTheme.CONTROL_ROWS:
 		names.append(r[0])
 		keys.append(r[1])
-	var box := UiTheme.add_panel(page, names, 1, 12, keys, 190.0)
+	var box := UiTheme.add_panel(page, names, 1, UiTheme.ROW_STEP, keys, 190.0)
 	UiTheme.add_rows(page, UiTheme.CONTROL_ROWS, box[0], (box[1] as Vector2).x)
 	return page
 

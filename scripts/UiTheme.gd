@@ -32,6 +32,10 @@ const CURSOR_GUTTER := 30    # cursor skull + air, left of the entry text
 const PANEL_PAD_X := 12
 const PANEL_PAD_BOTTOM := 12
 const VALUE_GAP := 24        # between an option's name and its value column
+## Row pitch for the dense two-column tables (controls, progress). Ten control
+## rows at 12 ran the panel straight through the footer band; 11 is the most
+## that fits between PANEL_Y and the footer.
+const ROW_STEP := 11
 
 
 ## Panel size for a list of entries, sized to its longest line rather than a
@@ -59,6 +63,9 @@ const CONTROL_ROWS := [
 	["DROP THROUGH", "S + SPACE"],
 	["ATTACK", "J"],
 	["DODGE ROLL", "K"],
+	["SWAP WEAPON", "TAB"],
+	["GUARD", "L"],
+	["USE  TAKE", "E"],
 	["PAUSE", "ESC"],
 ]
 
@@ -78,7 +85,7 @@ static func add_panel(parent: Node, items: Array, scale_px: int = 2,
 
 ## Lays out a name/key table inside a panel: names left, keys right.
 static func add_rows(parent: Node, rows: Array, origin: Vector2,
-		panel_w: float, step: int = 12) -> void:
+		panel_w: float, step: int = ROW_STEP) -> void:
 	for i in rows.size():
 		var y := origin.y + (MENU_Y0 - PANEL_Y) + i * step
 		var name_label := PixelLabel.make(rows[i][0], 1, BONE)
@@ -139,6 +146,15 @@ static func channel_size(frame: Vector2, cap: int) -> Vector2:
 
 static func tex(name: String) -> Texture2D:
 	return load(UI + name) as Texture2D
+
+
+## One frame out of a horizontal sheet anywhere in the project — the weapon
+## icons are world art, not UI art, so they do not live under assets/ui.
+static func frame_tex_from(path: String, index: int, fw: int, fh: int) -> AtlasTexture:
+	var at := AtlasTexture.new()
+	at.atlas = load(path) as Texture2D
+	at.region = Rect2(index * fw, 0, fw, fh)
+	return at
 
 
 ## One frame out of a horizontal sheet (the skull sheet is dim / ember-eyed).

@@ -129,16 +129,24 @@ func _strike() -> void:
 			p.take_damage(DAMAGE, global_position)
 
 
-func take_damage(amount: float, from: Vector2) -> void:
+## `knock` is how hard it throws them: the axe and the shield bash move a hollow
+## clean out of its own attack range, which is most of what they are for.
+func take_damage(amount: float, from: Vector2, knock: float = 70.0) -> void:
 	if state == State.DEAD:
 		return
 	health -= amount
 	var away := 1.0 if global_position.x >= from.x else -1.0
-	velocity.x = away * 70.0
+	velocity.x = away * knock
+	if knock > 160.0:
+		velocity.y = -70.0
 	if health <= 0.0:
 		_die()
 	else:
 		_enter(State.HURT)
+
+
+func is_dead() -> bool:
+	return state == State.DEAD
 
 
 func _die() -> void:

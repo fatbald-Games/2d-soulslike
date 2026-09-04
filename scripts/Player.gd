@@ -9,6 +9,9 @@ signal stamina_changed(cur: float, maxv: float)
 signal souls_changed(amount: int)
 signal flask_changed(cur: int, maxv: int)
 signal hit_landed(at: Vector2)
+signal shot(from: Vector2, dir: int, damage: float, weapon: int)
+signal weapon_changed(idx: int)
+signal guarded(at: Vector2, broke: bool)
 signal died
 
 # --- tuning ------------------------------------------------------------------
@@ -34,7 +37,13 @@ const ROLL_IFRAME_TO := 0.30       # i-frames end  -> ~55% of the roll is safe
 const ATTACK_TIME_BASE := 0.36
 const ATTACK_TIME_PER_FINESSE := 0.011   # 10 points takes a swing to 0.25s
 const ATTACK_HIT_FRACTION := 0.42        # where in the swing the blow lands
-const ATTACK_REACH := 30.0
+const ATTACK_REACH := 30.0               # the longsword's reach; see Weapons.gd
+
+# Guarding, with the shield equipped. It is deliberately not a free "no" to
+# every attack: it eats stamina per blow, and running out mid-block breaks the
+# guard and lets the whole hit through.
+const BLOCK_SPEED := 0.40                # how much of his walk he keeps up
+const BLOCK_COST_PER_DAMAGE := 2.1       # stamina burnt per point absorbed
 
 # Bases, before anything is spent at a bonfire. The three stats in Run.gd move
 # these, and each one shows on the HUD immediately: VIGOR and ENDURANCE make
@@ -47,7 +56,6 @@ const ATTACK_BASE := 34.0
 const ATTACK_PER_STRENGTH := 5.0
 const STAMINA_REGEN := 38.0
 const STAMINA_REGEN_DELAY := 0.45
-const ATTACK_COST := 28.0
 const ROLL_COST := 22.0
 
 const HURT_TIME := 0.28
@@ -61,7 +69,7 @@ const FLASK_HEAL := 45.0
 const DRINK_TIME := 0.75
 const DRINK_HEAL_AT := 0.45
 
-enum State { IDLE, RUN, ATTACK, ROLL, HURT, DEAD, CLIMB, DRINK }
+enum State { IDLE, RUN, ATTACK, ROLL, HURT, DEAD, CLIMB, DRINK, BLOCK }
 
 var state: State = State.IDLE
 var facing := 1                    # +1 right, -1 left
@@ -82,6 +90,7 @@ var _invuln := 0.0
 var _hit_done := false
 var _drank := false
 var _drop_thru := 0.0              # >0 while falling through a one-way beam
+var _shot_done := false           # one arrow per pull, not one per frame
 var _level: Node = null            # asked whether a ladder is under him
 
 @onready var sprite: AnimatedSprite2D = $Sprite
@@ -94,7 +103,8 @@ func apply_stats(top_up: bool = false) -> void:
 	stamina_max = STAMINA_BASE + Run.stats[Run.ENDURANCE] * STAMINA_PER_ENDURANCE
 	speed = SPEED_BASE + Run.stats[Run.AGILITY] * SPEED_PER_AGILITY
 	attack_damage = ATTACK_BASE + Run.stats[Run.STRENGTH] * ATTACK_PER_STRENGTH
-	attack_time = ATTACK_TIME_BASE - Run.stats[Run.FINESSE] * ATTACK_TIME_PER_FINESSE
+	attack_time = (ATTACK_TIME_BASE - Run.stats[Run.FINESSE] * ATTACK_TIME_PER_FINESSE) \
+			* float(weapon()["speed"])
 	if top_up:
 		health = health_max
 		stamina = stamina_max
@@ -103,6 +113,47 @@ func apply_stats(top_up: bool = false) -> void:
 		stamina = minf(stamina, stamina_max)
 	health_changed.emit(health, health_max)
 	stamina_changed.emit(stamina, stamina_max)
+
+
+# --- the armoury -------------------------------------------------------------
+## What is in his hands right now. Everything about a swing — how far it
+## reaches, how long it takes, what it costs, whether it even makes contact or
+## looses an arrow — comes off this one dictionary.
+func weapon() -> Dictionary:
+	return Weapons.def(Run.weapon)
+
+
+## The damage this weapon actually deals, STRENGTH included.
+func swing_damage() -> float:
+	return attack_damage * float(weapon()["damage"])
+
+
+func attack_cost() -> float:
+	return float(weapon()["stamina"])
+
+
+## Put a different weapon in his hands. Returns true if anything changed, so
+## Main only rebuilds the sprite sheets when it has to.
+func equip(idx: int) -> bool:
+	if not Run.equip(idx):
+		return false
+	apply_stats()
+	weapon_changed.emit(Run.weapon)
+	return true
+
+
+func swap_weapon(dir: int) -> bool:
+	var before := Run.weapon
+	Run.cycle_weapon(dir)
+	if Run.weapon == before:
+		return false
+	apply_stats()
+	weapon_changed.emit(Run.weapon)
+	return true
+
+
+func is_blocking() -> bool:
+	return state == State.BLOCK
 
 
 func _ready() -> void:
@@ -153,6 +204,8 @@ func _physics_process(delta: float) -> void:
 			_climb_state(delta)
 		State.DRINK:
 			_drink_state(delta)
+		State.BLOCK:
+			_block_state(delta)
 		State.HURT:
 			_decelerate(delta, 420.0)
 			if _t >= HURT_TIME:
@@ -176,8 +229,16 @@ func _tick_drop_thru(delta: float) -> void:
 
 # --- states ------------------------------------------------------------------
 func _ground_state(delta: float) -> void:
-	if Input.is_action_just_pressed("attack") and _spend(ATTACK_COST):
+	if Input.is_action_just_pressed("swap") and swap_weapon(1):
+		return
+	if Input.is_action_just_pressed("attack") and _spend(attack_cost()):
 		_enter(State.ATTACK)
+		return
+	# raising the shield is not an action with a cost — the cost lands when
+	# something actually hits it
+	if Weapons.can_block(Run.weapon) and Input.is_action_pressed("block") \
+			and is_on_floor():
+		_enter(State.BLOCK)
 		return
 	if Input.is_action_just_pressed("dodge") and _spend(ROLL_COST):
 		_enter(State.ROLL)
@@ -214,6 +275,21 @@ func _begin_drop_thru() -> void:
 	_drop_thru = DROP_THRU_TIME
 	set_collision_mask_value(BEAM_LAYER, false)
 	velocity.y = 40.0                 # a nudge, so he clears the beam at once
+
+
+## Guarding: he can shuffle, slowly, and do nothing else. Coming off the shield
+## is instant, which is what makes it worth raising at all.
+func _block_state(delta: float) -> void:
+	if not Input.is_action_pressed("block") or not Weapons.can_block(Run.weapon):
+		_enter(State.IDLE)
+		return
+	var dir := Input.get_axis("left", "right")
+	if dir != 0.0:
+		facing = 1 if dir > 0.0 else -1
+		sprite.flip_h = facing < 0
+		velocity.x = dir * speed * BLOCK_SPEED
+	else:
+		_decelerate(delta, 700.0)
 
 
 func _drink_state(delta: float) -> void:
@@ -266,6 +342,7 @@ func _attack_state(delta: float) -> void:
 	if not _hit_done and _t >= attack_time * ATTACK_HIT_FRACTION:
 		_hit_done = true
 		_swing()
+
 	if _t >= attack_time:
 		_enter(State.IDLE)
 
@@ -281,6 +358,7 @@ func _enter(next: State) -> void:
 	_t = 0.0
 	_hit_done = false
 	_drank = false
+	_shot_done = false
 	sprite.speed_scale = 1.0
 	match next:
 		State.IDLE:
@@ -299,6 +377,8 @@ func _enter(next: State) -> void:
 			sprite.play("roll")   # the tucked frames read as a scramble
 		State.DRINK:
 			sprite.play("idle")
+		State.BLOCK:
+			sprite.play("block")
 		State.HURT:
 			sprite.play("idle")
 		State.DEAD:
@@ -316,14 +396,34 @@ func _set_state_anim(next: State) -> void:
 
 
 # --- combat ------------------------------------------------------------------
+## The moment of contact. A bow or crossbow looses instead — Main puts the
+## arrow in the world, because the projectile has to outlive this frame and the
+## player is not the right owner for it.
 func _swing() -> void:
-	var box := _hit_rect(ATTACK_REACH, 26.0)
+	var w := weapon()
+	if w["kind"] == Weapons.RANGED:
+		_loose()
+		return
+	var box := _hit_rect(float(w["reach"]), float(w["height"]))
+	var knock := float(w["knock"])
+	var dmg := swing_damage()
 	for e in get_tree().get_nodes_in_group("enemy"):
 		if not is_instance_valid(e) or not (e is Node2D):
 			continue
 		if box.has_point(e.global_position + Vector2(0, -12)):
 			if e.has_method("take_damage"):
-				e.take_damage(attack_damage, global_position)
+				e.take_damage(dmg, global_position, knock)
+			# sparks and a kick of the camera, so contact READS as contact
+			hit_landed.emit((e.global_position + global_position) * 0.5
+					+ Vector2(0, -14))
+
+
+func _loose() -> void:
+	if _shot_done:
+		return
+	_shot_done = true
+	shot.emit(global_position + Vector2(facing * 10.0, -16.0), facing,
+			swing_damage(), Run.weapon)
 
 
 func _hit_rect(reach: float, height: float) -> Rect2:
@@ -333,6 +433,9 @@ func _hit_rect(reach: float, height: float) -> Rect2:
 
 func take_damage(amount: float, from: Vector2) -> void:
 	if state == State.DEAD or is_invulnerable():
+		return
+	amount = _absorb(amount, from)
+	if amount <= 0.0:
 		return
 	health = maxf(0.0, health - amount)
 	health_changed.emit(health, health_max)
@@ -345,6 +448,35 @@ func take_damage(amount: float, from: Vector2) -> void:
 		died.emit()
 	else:
 		_enter(State.HURT)
+
+
+## What the shield takes off an incoming hit. Only blows arriving from the side
+## he is facing count — turning your back on something with the guard up should
+## not save you. Running the stamina out mid-block BREAKS the guard: the rest of
+## that blow lands in full, and he is wide open for the recovery.
+func _absorb(amount: float, from: Vector2) -> float:
+	if state != State.BLOCK:
+		return amount
+	var toward := 1.0 if from.x >= global_position.x else -1.0
+	if int(toward) != facing:
+		return amount
+	var soak: float = float(weapon().get("block", 0.0))
+	var cost := amount * soak * BLOCK_COST_PER_DAMAGE
+	if stamina < cost:
+		stamina = 0.0
+		stamina_changed.emit(stamina, stamina_max)
+		guarded.emit(global_position, true)
+		return amount                       # guard break: the whole blow lands
+	stamina -= cost
+	_regen_block = STAMINA_REGEN_DELAY
+	stamina_changed.emit(stamina, stamina_max)
+	guarded.emit(global_position, false)
+	var through := amount * (1.0 - soak)
+	if through <= 0.0:
+		var away := 1.0 if global_position.x >= from.x else -1.0
+		velocity.x = away * 40.0            # shoved, not staggered
+		return 0.0
+	return through
 
 
 func add_souls(n: int) -> void:

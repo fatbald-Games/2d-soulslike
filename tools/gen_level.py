@@ -246,6 +246,17 @@ def build():
     for x in range(306, 380, 12):
         L.ent("brazier", x, 124)
 
+    # ============================================================== armoury ===
+    # Five weapons, one per region, each of them a detour off the main route.
+    # Placing them here rather than in Main means the reachability proof below
+    # has to agree that you can actually get to every one of them — a weapon you
+    # can see and never reach would be the worst possible version of this.
+    L.ent("weapon", 96, 76, weapon="axe")          # the ossuary
+    L.ent("weapon", 212, 92, weapon="spear")       # the flooded cistern
+    L.ent("weapon", 264, 108, weapon="shield")     # the rootworks
+    L.ent("weapon", 338, 68, weapon="crossbow")    # the frozen vault
+    L.ent("weapon", 210, 26, weapon="bow")         # the ramparts
+
     # ================================================================= lore ===
     # Environmental storytelling only — no cutscenes, no NPCs. Each stone says
     # something about why the keep is empty, and they read in the order you
@@ -476,6 +487,8 @@ def emit(L, solids, plats):
         parts = ['"kind": %s' % q(e["kind"]), '"x": %d' % e["x"], '"y": %d' % e["y"]]
         if "text" in e:
             parts.append('"text": %s' % q(e["text"]))
+        if "weapon" in e:
+            parts.append('"weapon": %s' % q(e["weapon"]))
         a("\t{%s}," % ", ".join(parts))
     a("]")
     a("")

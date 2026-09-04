@@ -81,7 +81,9 @@ func _process(_delta: float) -> bool:
 		3: _phase_options()
 		4: _phase_start_game()
 		5: _phase_pause()
-		6: _phase_quit_to_menu()
+		6: _phase_armoury()
+		7: _phase_panels_fit()
+		8: _phase_quit_to_menu()
 		_: return _finish()
 	return false
 
@@ -129,6 +131,13 @@ func _unrenderable() -> String:
 		strings.append(r[1])
 	for a in LevelMap.AREAS:
 		strings.append(a["name"])
+	# the armoury prints every name and every description straight into a panel,
+	# and a character the bone font has no glyph for silently vanishes there
+	for d in Weapons.DEFS:
+		strings.append(d["name"])
+		strings.append(d["desc"])
+	strings.append_array(Run.STAT_NAMES)
+	strings.append_array(Run.STAT_EFFECTS)
 	for e in LevelMap.ENTITIES:
 		if e.has("text"):
 			strings.append(e["text"])
@@ -254,6 +263,73 @@ func _phase_pause() -> void:
 			_ok("ESC closes the pause menu again", not pm.is_open())
 			_ok("closing the pause menu unfreezes the game", not paused)
 			_next()
+
+
+## The armoury page: six rows, the ones you have not found marked as such, and
+## no way to equip something you are not carrying.
+func _phase_armoury() -> void:
+	var bm = current_scene.bonfire_menu
+	match _phase_frame:
+		0:
+			bm.open()
+		2:
+			_ok("the bonfire opens its menu", bm.is_open())
+			_ok("the bonfire offers an armoury", bm.ITEMS.has("ARMOURY"))
+			bm._menu.index = bm.ITEMS.find("ARMOURY")
+			bm._menu._apply()
+			_key(KEY_ENTER)
+		4:
+			_ok("ENTER opens the armoury", bm._screen == 2,
+					"screen=%d" % bm._screen)
+			_ok("the armoury lists every weapon plus a way out",
+					bm._armoury._labels.size() == Weapons.DEFS.size() + 1,
+					"%d rows" % bm._armoury._labels.size())
+			_ok("a weapon you have not found says so",
+					bm._armoury._values[Weapons.AXE].text == "NOT FOUND",
+					bm._armoury._values[Weapons.AXE].text)
+			_ok("the weapon in your hands says so",
+					bm._armoury._values[Weapons.SWORD].text == "IN HAND",
+					bm._armoury._values[Weapons.SWORD].text)
+			_ok("each row explains what the weapon is for",
+					not (bm._blurb.text as String).is_empty())
+			bm._armoury.index = Weapons.AXE
+			bm._armoury._apply()
+			_key(KEY_ENTER)
+		6:
+			_ok("a weapon you have not found cannot be equipped",
+					Run.weapon == Weapons.SWORD, "weapon=%d" % Run.weapon)
+			_key(KEY_ESCAPE)
+		8:
+			_ok("ESC leaves the armoury", bm._screen == 0, "screen=%d" % bm._screen)
+			_key(KEY_ESCAPE)
+		10:
+			_ok("ESC closes the bonfire menu", not bm.is_open())
+			_ok("leaving the bonfire unpauses the game", not paused)
+			_next()
+
+
+## Every menu panel is sized from its own contents, so adding a row can quietly
+## push one down through the footer band and hide half of it. This is that
+## check: nothing is allowed to reach into the footer.
+func _phase_panels_fit() -> void:
+	var limit := UiTheme.VIEW.y - 17.0
+	var over: Array = []
+	for root in [current_scene.pause_menu, current_scene.bonfire_menu]:
+		for n in _panels(root):
+			if n.position.y + n.size.y > limit:
+				over.append("%.0f" % (n.position.y + n.size.y))
+	_ok("no menu panel reaches into the footer band", over.is_empty(),
+			"bottoms at %s, footer starts at %.0f" % [str(over), limit])
+	_next()
+
+
+func _panels(node: Node) -> Array:
+	var out: Array = []
+	if node is NinePatchRect and (node as NinePatchRect).size.x > 100.0:
+		out.append(node)
+	for c in node.get_children():
+		out.append_array(_panels(c))
+	return out
 
 
 func _phase_quit_to_menu() -> void:

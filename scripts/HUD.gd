@@ -28,6 +28,8 @@ var _sp_frame: NinePatchRect
 var _hp_ticks: Array[ColorRect] = []
 var _sp_ticks: Array[ColorRect] = []
 var _level: PixelLabel
+var _weapon: PixelLabel
+var _weapon_icon: TextureRect
 var _souls: PixelLabel
 var _fade: ColorRect
 var _died: PixelLabel
@@ -103,10 +105,22 @@ func _ready() -> void:
 	_level.position = Vector2(8, sp_pos.y + UiTheme.SP_FRAME.y + 24)
 	add_child(_level)
 
+	# --- what is in his hands, named and pictured. Six weapons that play
+	# nothing like each other are worth nothing if you cannot tell at a glance
+	# which one you swapped to. ---
+	_weapon_icon = TextureRect.new()
+	_weapon_icon.position = Vector2(6, sp_pos.y + UiTheme.SP_FRAME.y + 32)
+	add_child(_weapon_icon)
+
+	_weapon = PixelLabel.make("", 1, UiTheme.BONE_DIM)
+	_weapon.position = Vector2(21, sp_pos.y + UiTheme.SP_FRAME.y + 37)
+	add_child(_weapon)
+
 	# The hint used to sit there forever and just added noise. Now it introduces
 	# the controls and fades out; OPTIONS can switch it off entirely.
 	if Settings.hud_hints:
-		_hint = PixelLabel.make("A D MOVE   SPACE JUMP   W S CLIMB   J ATTACK   K ROLL",
+		_hint = PixelLabel.make(
+				"A D MOVE   SPACE JUMP   J ATTACK   K ROLL   TAB SWAP   L GUARD",
 				1, Color(0.353, 0.322, 0.290, 0.60))
 		_hint.center_on(UiTheme.VIEW.x * 0.5, UiTheme.VIEW.y - 13)
 		add_child(_hint)
@@ -236,6 +250,18 @@ func set_flask(cur: int, maxv: int) -> void:
 		_flask_row.add_child(pip)
 
 
+## The equipped weapon. Flashes bright and settles back to a quiet label, so a
+## swap is unmissable in the moment and then stops shouting.
+func set_weapon(idx: int) -> void:
+	_weapon.text = Weapons.name_of(idx)
+	_weapon_icon.texture = UiTheme.frame_tex_from(
+			"res://assets/sprites/weapon_icons.png", idx, 14, 14)
+	_weapon.tint = UiTheme.BONE_BRIGHT
+	var tw := create_tween()
+	tw.tween_interval(0.9)
+	tw.tween_property(_weapon, "tint", UiTheme.BONE_DIM, 0.6)
+
+
 ## An action offered by whatever is in reach. Called every frame, so it only
 ## touches the label when the text actually changes.
 func show_prompt(text: String) -> void:
@@ -253,7 +279,9 @@ func show_prompt(text: String) -> void:
 ## Fade a region name in over the middle of the screen, hold, fade out.
 func show_area(name: String) -> void:
 	_area.text = name
-	_area.center_on(UiTheme.VIEW.x * 0.5, 58)
+	# clear of the left-hand column: at 58 a long weapon name ran straight
+	# through the middle of the region banner
+	_area.center_on(UiTheme.VIEW.x * 0.5, 76)
 	if _area_tween != null and _area_tween.is_valid():
 		_area_tween.kill()
 	_area.modulate = Color(1, 1, 1, 0)

@@ -25,8 +25,10 @@ mit i-Frames, Ausdauer-Haushalt und ein Gegner mit telegrafiertem Angriff.
 | `Leertaste` | Springen |
 | `J` oder linke Maustaste | Angriff |
 | `K` oder `Shift` | **Ausweichrolle** |
+| `Tab` oder `R` | **Waffe wechseln** (nur durch gefundene) |
+| `L` oder rechte Maustaste | **Blocken** (nur mit dem Schild) |
 | `Q` | **Flakon trinken** (heilt, macht dich kurz wehrlos) |
-| `E` | **Lagerfeuer** entzünden / rasten / aufleveln |
+| `E` | **Lagerfeuer** entzünden / rasten / aufleveln, **Waffe aufheben** |
 | `W` `S` (oder ↑/↓) | **Leiter hoch/runter** |
 | `S` + `Leertaste` | durch einen Holzbalken **nach unten durchfallen** |
 | `Esc` | Pause-Menü |
@@ -152,9 +154,44 @@ nach Vorankommen anfühlt, hängt jetzt alles daran:
 - **Lagerfeuer sind erst kalt.** Ein unentzündetes Feuer sieht man von weitem
   als toten Haufen; `E` entzündet es mit einem Lichtstoß, und es bleibt für den
   Rest des Durchgangs an.
-- **Fortschritts-Seite** (`Esc` → PROGRESS): alle fünf Werte, Stufe, entzündete
-  Lagerfeuer, gefundene Bereiche, gelesene Inschriften und erlegte Hollows —
-  jeweils als `x / y`, damit man sieht, wie viel der Feste noch fehlt.
+- **Waffen liegen in der Welt.** Fünf der sechs Waffen findet man nur, indem
+  man irgendwo hingeht, wo man noch nicht war — siehe *Waffen*. Das ist die
+  einzige Art von Fortschritt hier, die nicht eine Zahl größer macht, sondern
+  das Spiel anders spielen lässt.
+- **Fortschritts-Seite** (`Esc` → PROGRESS): alle fünf Werte, Stufe, gefundene
+  Waffen, entzündete Lagerfeuer, gefundene Bereiche, gelesene Inschriften und
+  erlegte Hollows — jeweils als `x / y`, damit man sieht, wie viel der Feste
+  noch fehlt.
+
+## Waffen
+
+Sechs Waffen, und jede ist ein echter **Tausch** statt einer geraden
+Verbesserung — sonst macht der Fund die alte Waffe nur überflüssig und die
+Entscheidung verschwindet. Schaden und Tempo sind Multiplikatoren auf die am
+Lagerfeuer gekauften Werte, ein gelevelter STRENGTH zählt also mit jeder Waffe.
+
+| Waffe | Schaden | Tempo | Ausdauer | Reichweite | Eigenheit |
+|---|---|---|---|---|---|
+| **LONGSWORD** | ×1,00 | ×1,00 | 28 | 30 px | Startwaffe. Nichts daran ist am besten, nichts daran ist schlecht. |
+| **GREAT AXE** | ×1,90 | ×1,60 | 42 | 27 px | Fast doppelter Schaden, und langsam genug, dich umzubringen. Wirft Hollows weit weg. |
+| **WINGED SPEAR** | ×0,80 | ×0,92 | 24 | **46 px** | Trifft von außerhalb ihrer Reichweite — aber der Stich ist schmal (16 px hoch). |
+| **HUNTERS BOW** | ×0,62 | ×1,25 | 20 | Geschoss | Pfeile fliegen 300 px/s und **fallen** dabei. Dünnt aus, bevor sie ankommen. |
+| **IRON CROSSBOW** | ×1,55 | ×2,10 | 32 | Geschoss | Ein schwerer Bolzen, flach mit 470 px/s. Danach ein Nachladen, das man spürt. |
+| **HERALDS SHIELD** | ×0,45 | ×1,05 | 16 | 22 px | Schluckt **80 %** eines Treffers — dafür Ausdauer. Geht die aus, **bricht die Deckung** und der ganze Schlag landet. |
+
+- **Jede Waffe hat eigene Idle-, Lauf- und Angriffsbilder** (`hero_idle_*.png`,
+  `hero_run_*.png`, `hero_attack_*.png`). Der Ritter trägt sichtbar, was er
+  gefunden hat — nicht nur mitten im Schlag. Alle sechs sind prozedural aus
+  derselben Hand gezeichnet, damit die Posen zueinander passen.
+- **Blocken** geht nur mit dem Schild und nur gegen Schläge von vorn. Der
+  Rücken bleibt offen, und ein Treffer bei leerer Ausdauer bricht die Deckung.
+- **Armoury** am Lagerfeuer (`E` → ARMOURY) listet alle sechs, auch die noch
+  nicht gefundenen: fünf leere Zeilen hießen „da draußen ist nichts", fünf
+  benannte heißen „da sind noch fünf Orte".
+- **Wo sie liegen**: Axt in der Ossuary, Speer in der Zisterne, Schild im
+  Wurzelwerk, Armbrust im Frostgewölbe, Bogen auf den Wehrgängen. Die
+  Erreichbarkeitsprüfung in `tools/gen_level.py` beweist für jede einzelne,
+  dass man wirklich hinkommt.
 
 ## Der Kreislauf
 
@@ -180,12 +217,14 @@ Die souls-typische Logik: **jede Aktion kostet Ausdauer und ist verbindlich** �
 Angriffe und Rollen lassen sich nicht abbrechen. Wer blind draufhaut, steht ohne
 Ausdauer da, wenn der Hollow zuschlägt.
 
-- **Ausdauer** (100): Angriff kostet 28, Rolle 22. Regeneration 38/s, startet
+- **Ausdauer** (100): ein Angriff kostet, was die Waffe verlangt (16–42), Rolle 22. Regeneration 38/s, startet
   0,45 s nach der letzten Aktion. Ohne genug Ausdauer geht die Aktion gar nicht erst los.
 - **Ausweichrolle**: dauert 0,42 s; **i-Frames von 0,07 s bis 0,30 s** — also
   etwa die mittleren 55 % sind unverwundbar. Der Held färbt sich in dieser Zeit
   leicht cyan, damit das Fenster lesbar ist.
-- **Angriff**: 0,36 s, der Treffer landet bei 0,15 s (dem Schlagbild), Reichweite 30 px.
+- **Angriff**: 0,36 s mit dem Langschwert, der Treffer landet bei 42 % des
+  Schlags. Waffe und FINESSE strecken oder stauchen diese Zeit; das Schlagbild
+  läuft entsprechend schneller ab, sonst landet der Treffer nach der Animation.
 - **Der Hollow** holt **0,55 s lang sichtbar aus**, bevor er zusticht — lang genug,
   um die Rolle zu timen. Danach 0,55 s Erholung: das ist dein Fenster zum Kontern.
 - **Treffer** geben 0,65 s Unverwundbarkeit + Rückstoß (Blinken).
@@ -244,11 +283,12 @@ Anzeige, in CI also Xvfb):
 xvfb-run -a godot --path . --script res://tools/screenshot.gd
 ```
 
-Legt `tools/shots/*.png` an: Titel, Steuerung, HUD im Spiel, Pause und je ein
-Bild aus Abstieg, Ossarium und Wehrgang.
+Legt `tools/shots/*.png` an: Titel, Steuerung, HUD im Spiel, Pause, Armoury,
+Fortschritts-Seite und je ein Bild aus jedem Bereich.
 
 ![Der Abstieg](tools/shots/05_descent.png)
-![Das Ossarium](tools/shots/06_ossuary.png)
+![Die Armoury](tools/shots/16_armoury.png)
+![Mit der Großen Axt](tools/shots/19_great_axe.png)
 
 ## Projektstruktur
 
@@ -270,8 +310,10 @@ ashen-hollow/
 │   ├─ UiTheme.gd         Palette, Menü-Layout, Panel- und Leisten-Geometrie
 │   ├─ Settings.gd        Optionen, gespeichert in user://settings.cfg
 │   ├─ Run.gd             Fortschritt: Werte, Checkpoint, Seelen, Entdecktes
-│   ├─ BonfireMenu.gd     Rasten und Aufleveln am Feuer
-│   ├─ Player.gd          Zustandsautomat, Ausdauer, i-Frames, Angriff
+│   ├─ BonfireMenu.gd     Rasten, Aufleveln und die Armoury am Feuer
+│   ├─ Weapons.gd         Die Waffentabelle: Schaden, Tempo, Reichweite, Block
+│   ├─ Projectile.gd      Pfeil und Bolzen im Flug (Pfeile fallen, Bolzen nicht)
+│   ├─ Player.gd          Zustandsautomat, Ausdauer, i-Frames, Angriff, Deckung
 │   ├─ Hollow.gd          Gegner-KI: verfolgen → ausholen → zustechen → erholen
 │   ├─ HUD.gd             Knochen-Leisten, Schaden-Geist, Seelen, „YOU DIED"
 │   └─ SpriteUtil.gd      Zerschneidet die Sprite-Sheets in Animationen
@@ -281,11 +323,14 @@ ashen-hollow/
 │   ├─ bar_frame_hp/sp.png  Knochen-Tröge für Leben und Ausdauer
 │   └─ menu_bg.png        Gruft-Hintergrund mit Knochenhaufen (384×216)
 ├─ assets/sprites/
-│   ├─ hero_idle.png      44×32, 4 Frames    ┐
-│   ├─ hero_run.png       44×32, 6 Frames    │ alle mit gleichem Anker auf den
-│   ├─ hero_attack.png    44×32, 4 Frames    │ Füßen (Frame-Pixel 22,31) →
-│   ├─ hero_roll.png      44×32, 4 Frames    │ Godot-Offset (-22,-31)
+│   ├─ hero_idle_*.png    44×32, 4 Frames    ┐ je ein Satz PRO WAFFE (sword,
+│   ├─ hero_run_*.png     44×32, 6 Frames    │ axe, spear, bow, crossbow,
+│   ├─ hero_attack_*.png  44×32, 4 Frames    │ shield) — alle mit gleichem Anker
+│   ├─ hero_block.png     44×32, 2 Frames    │ auf den Füßen (Frame-Pixel 22,31)
+│   ├─ hero_roll.png      44×32, 4 Frames    │ → Godot-Offset (-22,-31)
 │   ├─ hollow.png         44×32, 6 Frames    ┘ [idle,idle,windup,strike,hurt,dead]
+│   ├─ weapon_icons.png   14×14, 6 Frames — was am Boden liegt und im HUD steht
+│   ├─ arrow.png, bolt.png
 │   ├─ tile_floor/wall.png, tile_beam.png, tile_ladder.png, rune.png
 │   ├─ bonfire.png, torch.png, light_soft.png
 └─ tools/

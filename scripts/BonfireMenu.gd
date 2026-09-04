@@ -9,16 +9,20 @@ extends CanvasLayer
 
 signal rested
 signal levelled
+signal equipped(idx: int)
 
-const ITEMS := ["REST", "LEVEL UP", "LEAVE"]
+const ITEMS := ["REST", "LEVEL UP", "ARMOURY", "LEAVE"]
+const ARMOURY_STEP := 13
 
-enum Screen { MAIN, LEVEL }
+enum Screen { MAIN, LEVEL, ARMOURY }
 
 var _screen: Screen = Screen.MAIN
 var _menu: MenuList
 var _levels: MenuList
+var _armoury: MenuList
 var _pages: Dictionary = {}
 var _cost: PixelLabel
+var _blurb: PixelLabel
 var _open := false
 
 
@@ -37,6 +41,7 @@ func _build() -> void:
 	add_child(shade)
 	_pages[Screen.MAIN] = _build_main()
 	_pages[Screen.LEVEL] = _build_level()
+	_pages[Screen.ARMOURY] = _build_armoury()
 	_show(Screen.MAIN)
 
 
@@ -114,6 +119,78 @@ func _refresh_level() -> void:
 	_cost.center_on(UiTheme.VIEW.x * 0.5, _cost.position.y)
 
 
+## The armoury: everything the keep holds, found or not. Naming the ones you
+## have NOT found yet is deliberate — five blank rows say "there is nothing out
+## there", five named ones say "there are five more places to go".
+func _build_armoury() -> Control:
+	var page := _page("ARMOURY", "ENTER  EQUIP      ESC  BACK")
+	var items := _armoury_items()
+	var box := UiTheme.add_panel(page, items, 1, ARMOURY_STEP, _armoury_values(), 250.0)
+	var origin: Vector2 = box[0]
+	var size: Vector2 = box[1]
+
+	_armoury = MenuList.new()
+	page.add_child(_armoury)
+	_armoury.build(items, origin, size.x, 1, ARMOURY_STEP, _armoury_values())
+	_armoury.activated.connect(_on_armoury_activated)
+	_armoury.selection_changed.connect(_on_armoury_moved)
+
+	# what the highlighted weapon actually does. Six damage numbers mean nothing
+	# without the sentence that says what the trade is.
+	_blurb = PixelLabel.make("", 1, UiTheme.BONE_FAINT)
+	_blurb.center_on(UiTheme.VIEW.x * 0.5, origin.y + size.y + 8)
+	page.add_child(_blurb)
+	return page
+
+
+func _armoury_items() -> Array:
+	var rows: Array = []
+	for i in Weapons.DEFS.size():
+		rows.append(Weapons.name_of(i))
+	rows.append("BACK")
+	return rows
+
+
+func _armoury_values() -> Array:
+	var vals: Array = []
+	for i in Weapons.DEFS.size():
+		if not Run.has_weapon(Weapons.DEFS[i]["id"]):
+			vals.append("NOT FOUND")
+		elif i == Run.weapon:
+			vals.append("IN HAND")
+		else:
+			vals.append("READY")
+	vals.append("")
+	return vals
+
+
+func _refresh_armoury() -> void:
+	var vals := _armoury_values()
+	for i in vals.size():
+		_armoury.set_value(i, vals[i])
+	_on_armoury_moved(_armoury.index)
+
+
+func _on_armoury_moved(idx: int) -> void:
+	if idx < 0 or idx >= Weapons.DEFS.size():
+		_blurb.text = ""
+		return
+	if not Run.has_weapon(Weapons.DEFS[idx]["id"]):
+		_blurb.text = "SOMEWHERE IN THE KEEP. YOU HAVE NOT FOUND IT YET."
+	else:
+		_blurb.text = Weapons.def(idx)["desc"]
+	_blurb.center_on(UiTheme.VIEW.x * 0.5, _blurb.position.y)
+
+
+func _on_armoury_activated(idx: int) -> void:
+	if idx >= Weapons.DEFS.size():
+		_show(Screen.MAIN)
+		return
+	if Run.has_weapon(Weapons.DEFS[idx]["id"]):
+		equipped.emit(idx)
+	_refresh_armoury()
+
+
 func _show(s: Screen) -> void:
 	_screen = s
 	for key in _pages:
@@ -133,6 +210,7 @@ func open() -> void:
 	_menu.index = 0
 	_menu._apply()
 	_refresh_level()
+	_refresh_armoury()
 	_show(Screen.MAIN)
 	get_tree().paused = true
 
@@ -170,6 +248,11 @@ func _unhandled_input(event: InputEvent) -> void:
 				_show(Screen.MAIN)
 			else:
 				_input_list(k, _levels)
+		Screen.ARMOURY:
+			if k.physical_keycode == KEY_ESCAPE:
+				_show(Screen.MAIN)
+			else:
+				_input_list(k, _armoury)
 	_consume()
 
 
@@ -192,6 +275,9 @@ func _on_activated(idx: int) -> void:
 			_refresh_level()
 			_show(Screen.LEVEL)
 		2:
+			_refresh_armoury()
+			_show(Screen.ARMOURY)
+		3:
 			close()
 
 

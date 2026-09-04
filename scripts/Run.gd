@@ -40,6 +40,57 @@ const COST_STEP := 40
 
 static var stats := [0, 0, 0, 0, 0]        # indexes match STAT_NAMES
 
+# --- the armoury ------------------------------------------------------------
+## Which weapons have been found, and which one is in his hands. Finding one is
+## the only progress in the game that changes how it PLAYS rather than how big
+## a number is — so it lives here with the rest of the run, and survives death.
+static var weapons := {Weapons.START: true}     # id -> true
+static var weapon := 0                          # index into Weapons.DEFS
+
+
+static func has_weapon(id: String) -> bool:
+	return weapons.has(id)
+
+
+## True only the FIRST time — Main uses that to decide whether to announce it.
+static func find_weapon(id: String) -> bool:
+	if weapons.has(id):
+		return false
+	weapons[id] = true
+	return true
+
+
+## Indices of everything found, in armoury order.
+static func owned() -> Array:
+	var out: Array = []
+	for i in Weapons.DEFS.size():
+		if weapons.has(Weapons.DEFS[i]["id"]):
+			out.append(i)
+	return out
+
+
+static func equip(idx: int) -> bool:
+	if idx < 0 or idx >= Weapons.DEFS.size():
+		return false
+	if not weapons.has(Weapons.DEFS[idx]["id"]) or idx == weapon:
+		return false
+	weapon = idx
+	return true
+
+
+## Step to the next weapon he actually owns, wrapping. Unfound weapons are not
+## in the cycle at all — swapping should never land on an empty hand.
+static func cycle_weapon(dir: int) -> int:
+	var own := owned()
+	if own.size() < 2:
+		return weapon
+	var at := own.find(weapon)
+	if at < 0:
+		at = 0
+	weapon = own[posmod(at + dir, own.size())]
+	return weapon
+
+
 # --- what has been seen -----------------------------------------------------
 static var lit_bonfires := {}              # "tx,ty" -> true
 static var seen_areas := {}                # area name -> true
@@ -56,6 +107,8 @@ static func reset() -> void:
 	souls = 0
 	flask = Player.FLASK_MAX
 	stats = [0, 0, 0, 0, 0]
+	weapons = {Weapons.START: true}
+	weapon = Weapons.index_of(Weapons.START)
 	lit_bonfires = {}
 	seen_areas = {}
 	read_runes = {}
@@ -148,4 +201,5 @@ static func totals() -> Dictionary:
 			bonfires += 1
 		elif e["kind"] == "rune":
 			runes += 1
-	return {"areas": LevelMap.AREAS.size(), "bonfires": bonfires, "runes": runes}
+	return {"areas": LevelMap.AREAS.size(), "bonfires": bonfires, "runes": runes,
+			"weapons": Weapons.count()}
