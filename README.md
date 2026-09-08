@@ -69,6 +69,50 @@ code-generiert (siehe Pipeline unten):
   selbst läuft in `PROCESS_MODE_ALWAYS` weiter, sonst könnte es sich nie wieder
   schließen.
 
+## Wie die Welt gezeichnet wird
+
+Acht Bereiche, die sich nur in der Farbe unterscheiden, sehen aus wie ein
+achtmal umgestrichener Korridor. Was daraus Orte macht, ist **Tiefe** — und die
+entsteht aus vier Dingen, nicht aus mehr Textur:
+
+- **Drei Ebenen.** Die Rückwand liegt auf einem eigenen Canvas-Item (`BACK_Z`),
+  davor die Deko (`DECO_Z`), davor der Fels (`TERRAIN_Z`). Deshalb verschwindet
+  eine Kette in der Decke, aus der sie hängt, statt darüber gemalt zu werden.
+- **Die Rückwand wird abgedunkelt** (`BACK_DIM`). Vorher waren fester Fels und
+  leere Luft gleich hell, und der ganze Bildschirm war ein einziges Rauschfeld.
+  Diese eine Zahl bringt mehr Lesbarkeit als jede Textur.
+- **Der Boden bekommt eine Kruste.** Jede Steinkachel mit Luft darüber wird als
+  `tile_cap_*` gezeichnet: Asche, Knochensplitter, nasse Algen, Wurzeln, Glut,
+  Frost. Erst diese beleuchtete Kante macht aus einer gekachelten Textur wieder
+  einen Boden, auf dem man stehen kann.
+- **Kontaktschatten und Tiefenabfall.** Offene Kacheln neben Stein werden
+  abgedunkelt (am stärksten unter einem Überhang), und Fels wird dunkler, je
+  tiefer er unter der Oberfläche liegt. Sonst ist die Masse unter dem Boden
+  eine flache Platte in Bildschirmhöhe.
+
+Dazu kommt, was die Wiederholung bricht:
+
+- **Vier Varianten** jeder Kachel, pro Position per Hash gewählt (`_variant`),
+  plus ein Hauch Helligkeits-Jitter. Eine Kachel 24-mal nebeneinander liest sich
+  als Tapete; vier gemischte lesen sich als Stein.
+- **Deko-Silhouetten** (`deco.png`): Ketten, Säulen, Knochenhaufen, Wurzeln,
+  Eiszapfen, Banner, Schädel auf Pfählen, Bögen. Eine Bilderfolge, pro Region
+  eingefärbt. Sie werden an die Geometrie gehängt (`L.hang` / `L.stand` in
+  `gen_level.py` suchen sich Decke bzw. Boden selbst), nicht an feste Pixel.
+- **Ein Partikelfeld pro Region**, das der Kamera folgt und beim Grenzübertritt
+  neu eingestellt wird: fallende Asche am Tor, Tropfen im Schacht, aufsteigende
+  Blasen in der Zisterne, Sporen im Wurzelwerk, Glut in der Schmiede, Schnee im
+  Gewölbe, Wind auf den Wehrgängen. Stehende Luft liest sich als Diagramm,
+  bewegte als Ort.
+- **Die Kamera schaut nach oben** (`cam.position.y = -16`). Zentriert auf dem
+  Ritter war ein Drittel jedes Bildes der Fels unter seinen Füßen.
+
+Kleinigkeiten im gleichen Geist: Aufprall-Stauchung und aufgewirbelter Staub
+beim Landen (der Ritter ist an den Füßen verankert, die Stauchung drückt ihn
+also in den Boden statt ihn abzuheben), ein weißes Trefferbild auf dem Hollow,
+eine beleuchtete Wasserlinie nur an der Oberkante des Beckens statt einer
+Streifen pro Kachel.
+
 ## Die Welt
 
 Der Kerker ist **384 × 128 Kacheln (6144 × 2048 px)** — sechzehn Bildschirme
@@ -98,10 +142,19 @@ Stein unter warmorangem Licht liest sich sonst wie der Raum, den man gerade
 verlassen hat. Die Paletten stehen in `THEMES` (`gen_art.py`), die Lichtfarben
 in `THEME_LIGHT` (`gen_level.py`) — Kunst und Leveldaten getrennt.
 
-Beim Betreten blendet der Name des Bereichs auf. **Fünfzehn Inschriften** liegen auf
-dem Weg — tritt man darauf, leuchten sie und zeigen ihre Zeile. Das ist die
-ganze Story: keine Zwischensequenzen, keine NPCs. Sie erzählen in der
-Reihenfolge, in der man sie körperlich erreicht, warum die Feste leer ist.
+Beim Betreten blendet der Name des Bereichs auf. **Vierundzwanzig Inschriften**
+liegen auf dem Weg — tritt man darauf, leuchten sie und zeigen ihre Zeile. Das
+ist die ganze Story: keine Zwischensequenzen, keine NPCs.
+
+Es spricht **eine** Stimme: der letzte Wächter, der zurückblieb, um die Feuer zu
+hüten, und immer weiter nach innen weiterschnitzte. Die Steine erzählen in der
+Reihenfolge, in der man sie körperlich erreicht, und weil die Route auf den
+Wehrgängen wieder nach Westen zurückführt, ist der letzte Stein, den man findet,
+der einzige, der von *dir* handelt:
+
+> THE GATE AHEAD OPENS FROM THE OTHER SIDE. NOTHING HERE DOES.
+>
+> YOU CAME IN THROUGH THAT GATE. SO DID I.
 
 ### Warum der Level generiert wird
 
@@ -159,9 +212,11 @@ nach Vorankommen anfühlt, hängt jetzt alles daran:
   einzige Art von Fortschritt hier, die nicht eine Zahl größer macht, sondern
   das Spiel anders spielen lässt.
 - **Fortschritts-Seite** (`Esc` → PROGRESS): alle fünf Werte, Stufe, gefundene
-  Waffen, entzündete Lagerfeuer, gefundene Bereiche, gelesene Inschriften und
-  erlegte Hollows — jeweils als `x / y`, damit man sieht, wie viel der Feste
-  noch fehlt.
+  Waffen, entzündete Lagerfeuer, gefundene Bereiche, gelesene Inschriften,
+  erlegte Hollows und **Tode** — jeweils als `x / y`, damit man sieht, wie viel
+  der Feste noch fehlt. Die Tode stehen bewusst dabei: ein Souls-Spiel, das die
+  Zahl verschweigt, drückt sich vor der einzigen Kennzahl, die den Durchgang
+  wirklich beschreibt.
 
 ## Waffen
 

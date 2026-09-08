@@ -12,6 +12,7 @@ signal hit_landed(at: Vector2)
 signal shot(from: Vector2, dir: int, damage: float, weapon: int)
 signal weapon_changed(idx: int)
 signal guarded(at: Vector2, broke: bool)
+signal landed(at: Vector2, force: float)
 signal died
 
 # --- tuning ------------------------------------------------------------------
@@ -58,6 +59,9 @@ const STAMINA_REGEN := 38.0
 const STAMINA_REGEN_DELAY := 0.45
 const ROLL_COST := 22.0
 
+## Below this the drop was a step, not a fall, and nothing should happen.
+const LAND_MIN_FALL := 200.0
+
 const HURT_TIME := 0.28
 const INVULN_AFTER_HIT := 0.65
 
@@ -91,6 +95,7 @@ var _hit_done := false
 var _drank := false
 var _drop_thru := 0.0              # >0 while falling through a one-way beam
 var _shot_done := false           # one arrow per pull, not one per frame
+var _squash: Tween                # the impact squash on landing
 var _level: Node = null            # asked whether a ladder is under him
 
 @onready var sprite: AnimatedSprite2D = $Sprite
@@ -213,8 +218,27 @@ func _physics_process(delta: float) -> void:
 		State.DEAD:
 			_decelerate(delta, 600.0)
 
+	var was_airborne := not is_on_floor()
+	var fall := velocity.y
 	move_and_slide()
+	if was_airborne and is_on_floor() and fall > LAND_MIN_FALL:
+		_land(fall)
 	_update_flash()
+
+
+## Hitting the ground after a real drop. The squash is the whole point: at this
+## size a knight in plate who lands and simply keeps walking reads as weightless.
+## The sprite is anchored at the feet, so scaling it compresses it INTO the
+## floor rather than lifting it off.
+func _land(fall: float) -> void:
+	var force := clampf((fall - LAND_MIN_FALL) / 300.0, 0.0, 1.0)
+	landed.emit(global_position, force)
+	if _squash != null and _squash.is_valid():
+		_squash.kill()
+	sprite.scale = Vector2(1.0 + 0.18 * force, 1.0 - 0.20 * force)
+	_squash = create_tween()
+	_squash.tween_property(sprite, "scale", Vector2.ONE, 0.18) \
+			.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 
 ## One-way beams are their own collision layer, so dropping through one is just

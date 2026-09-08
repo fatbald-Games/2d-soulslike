@@ -12,6 +12,37 @@ const SOUL_PICKUP_RANGE := 20.0
 const PICKUP_RANGE := 22.0           # how close you must stand to take a weapon
 const SHAKE_DECAY := 7.0
 
+## Frame order in assets/sprites/deco.png (see DECO_NAMES in tools/gen_art.py).
+const DECO_FRAMES := ["chain", "pillar", "bones", "roots", "icicles", "banner",
+		"skull_spike", "arch"]
+const DECO_W := 16
+const DECO_H := 32
+
+## What hangs in the air in each region. One particle field follows the camera
+## and is reconfigured on crossing a border, rather than eight fields simulating
+## a whole map's worth of motes nobody is looking at.
+##
+## This is the cheapest atmosphere in the game and close to the most effective:
+## still air reads as a diagram, moving air reads as a place.
+const AMBIENCE := {
+	"gate": {"n": 42, "grav": Vector2(7, 16), "vel": 5.0, "life": 5.0,
+			"col": Color(0.74, 0.70, 0.64), "size": 0.16},
+	"descent": {"n": 38, "grav": Vector2(2, 24), "vel": 6.0, "life": 4.0,
+			"col": Color(0.62, 0.62, 0.72), "size": 0.14},
+	"ossuary": {"n": 34, "grav": Vector2(3, 9), "vel": 4.0, "life": 6.5,
+			"col": Color(0.80, 0.76, 0.64), "size": 0.15},
+	"cistern": {"n": 44, "grav": Vector2(0, -18), "vel": 5.0, "life": 4.5,
+			"col": Color(0.55, 0.86, 0.92), "size": 0.17},
+	"rootworks": {"n": 48, "grav": Vector2(-3, -5), "vel": 6.0, "life": 7.0,
+			"col": Color(0.55, 0.95, 0.58), "size": 0.18},
+	"forge": {"n": 58, "grav": Vector2(4, -34), "vel": 14.0, "life": 3.2,
+			"col": Color(1.0, 0.60, 0.24), "size": 0.20},
+	"vault": {"n": 54, "grav": Vector2(6, 20), "vel": 6.0, "life": 5.0,
+			"col": Color(0.86, 0.93, 1.0), "size": 0.18},
+	"ramparts": {"n": 52, "grav": Vector2(-30, 12), "vel": 10.0, "life": 4.0,
+			"col": Color(0.72, 0.74, 0.84), "size": 0.15},
+}
+
 var level: Level
 var world_w := float(LevelMap.W * TW)
 var world_h := float(LevelMap.H * TW)
@@ -27,6 +58,8 @@ var _near_bonfire: Dictionary = {}
 var _camera: Camera2D
 var _shake := 0.0
 var _sparks: CPUParticles2D
+var _motes: CPUParticles2D           # the region's airborne dust, ash or embers
+var _dust: CPUParticles2D            # kicked up where he lands
 var _t := 0.0
 var _area := ""
 var hud                     # HUD.gd instance (untyped: it has no class_name)
@@ -45,8 +78,10 @@ func _ready() -> void:
 	_spawn_entities()
 	_place_at_checkpoint()
 	_build_sparks()
+	_build_dust()
 	_wire_hud()
 	_build_camera()
+	_build_ambience()
 	_spawn_soul_orb()
 
 
@@ -119,6 +154,29 @@ func _spawn_entities() -> void:
 				_rune(foot, e["text"], Run.key(tx, ty))
 			"weapon":
 				_weapon_pickup(foot, e["weapon"])
+			"deco":
+				_deco(tx, ty, e["deco"], int(e["stand"]) == 1)
+
+
+## A chain, a pillar, a pile of bones. Drawn between the back wall and the
+## stone (Level.DECO_Z), tinted with the region's own light, so it reads as
+## something standing in the middle distance rather than a sticker on the wall.
+##
+## Eight regions that differ only in colour still look like one corridor
+## repainted; shape in the middle distance is what makes them feel like places.
+func _deco(tx: int, ty: int, kind: String, standing: bool) -> void:
+	var idx := DECO_FRAMES.find(kind)
+	if idx < 0:
+		return
+	var s := Sprite2D.new()
+	s.texture = SpriteUtil.frame_of(_tex("deco.png"), idx, DECO_W, DECO_H)
+	s.centered = false
+	# hanging props start at the ceiling; standing ones end on the floor
+	s.position = Vector2(tx * TW, float(ty * TW) if not standing
+			else float((ty + 1) * TW - DECO_H))
+	s.z_index = Level.DECO_Z
+	s.modulate = level.theme_tint(tx, ty)
+	add_child(s)
 
 
 func _box(parent: Node, pos: Vector2, size: Vector2) -> void:
@@ -269,7 +327,11 @@ func _build_lighting_root() -> void:
 	var cm := CanvasModulate.new()
 	# a big level needs a higher ambient floor than one flat corridor did,
 	# or the stretches between torches read as solid black nothing
-	cm.color = Color(0.30, 0.28, 0.36)
+	# Raised from 0.30 once the back wall started drawing at BACK_DIM: the two
+	# multiply, and at 0.30 everything behind the player fell to near black.
+	# The readability now comes from the CONTRAST between wall and stone, so
+	# the floor itself can afford to be lit.
+	cm.color = Color(0.53, 0.51, 0.60)
 	add_child(cm)
 
 
@@ -443,6 +505,7 @@ func _wire_hud() -> void:
 	player.weapon_changed.connect(_on_weapon_changed)
 	player.shot.connect(_on_shot)
 	player.guarded.connect(_on_guarded)
+	player.landed.connect(_on_landed)
 	player.died.connect(_on_player_died)
 	hud.set_health(player.health, player.health_max)
 	hud.set_stamina(player.stamina, player.stamina_max)
@@ -452,6 +515,7 @@ func _wire_hud() -> void:
 
 
 func _on_player_died() -> void:
+	Run.deaths += 1
 	Run.drop(player.global_position, player.souls)
 	Run.flask = Player.FLASK_MAX          # the flask is refilled by dying, too
 	_add_shake(3.0)
@@ -516,6 +580,91 @@ func _build_sparks() -> void:
 	_sparks = p
 
 
+## One field of motes, parented to the knight so it is always exactly where the
+## camera is looking, and re-dressed whenever he crosses into a new region.
+func _build_ambience() -> void:
+	var p := CPUParticles2D.new()
+	p.local_coords = false
+	p.emission_shape = CPUParticles2D.EMISSION_SHAPE_RECTANGLE
+	# a screen and a half wide, so motes are already in flight at the edges
+	p.emission_rect_extents = Vector2(280, 150)
+	p.position = Vector2(0, -20)
+	var dot := AtlasTexture.new()
+	dot.atlas = _tex("light_soft.png")
+	dot.region = Rect2(120, 120, 16, 16)
+	p.texture = dot
+	p.spread = 40.0
+	p.z_index = -2                   # behind the knight, in front of the stone
+	player.add_child(p)
+	_motes = p
+	_set_ambience(level.theme_name_at(player.global_position))
+
+
+func _set_ambience(theme: String) -> void:
+	if _motes == null or not AMBIENCE.has(theme):
+		return
+	var a: Dictionary = AMBIENCE[theme]
+	_motes.amount = int(a["n"])
+	_motes.lifetime = float(a["life"])
+	_motes.gravity = a["grav"]
+	_motes.direction = (a["grav"] as Vector2).normalized()
+	_motes.initial_velocity_min = 0.0
+	_motes.initial_velocity_max = float(a["vel"])
+	_motes.scale_amount_min = float(a["size"]) * 0.6
+	_motes.scale_amount_max = float(a["size"])
+	var col: Color = a["col"]
+	var g := Gradient.new()
+	g.set_color(0, Color(col.r, col.g, col.b, 0.0))
+	g.set_color(1, Color(col.r, col.g, col.b, 0.0))
+	# fade in and back out, so nothing ever pops into or out of existence
+	g.add_point(0.25, Color(col.r, col.g, col.b, 0.72))
+	g.add_point(0.75, Color(col.r, col.g, col.b, 0.72))
+	_motes.color_ramp = g
+	_motes.restart()
+
+
+## Grit kicked out sideways where he lands. Tinted with the region's own light
+## so the forge throws sparks and the cistern throws spray.
+func _build_dust() -> void:
+	var p := CPUParticles2D.new()
+	p.emitting = false
+	p.one_shot = true
+	p.explosiveness = 0.9
+	p.amount = 12
+	p.lifetime = 0.42
+	p.local_coords = false
+	var dot := AtlasTexture.new()
+	dot.atlas = _tex("light_soft.png")
+	dot.region = Rect2(120, 120, 16, 16)
+	p.texture = dot
+	p.emission_shape = CPUParticles2D.EMISSION_SHAPE_RECTANGLE
+	p.emission_rect_extents = Vector2(5, 1)
+	p.direction = Vector2(1, -0.35)
+	p.spread = 62.0
+	p.gravity = Vector2(0, 220)
+	p.initial_velocity_min = 18.0
+	p.initial_velocity_max = 54.0
+	p.scale_amount_min = 0.10
+	p.scale_amount_max = 0.20
+	add_child(p)
+	_dust = p
+
+
+func _on_landed(at: Vector2, force: float) -> void:
+	if _dust == null or force <= 0.0:
+		return
+	var col := level.light_at(at)
+	var g := Gradient.new()
+	g.set_color(0, Color(col.r, col.g, col.b, 0.55 + 0.35 * force))
+	g.set_color(1, Color(col.r * 0.6, col.g * 0.6, col.b * 0.6, 0.0))
+	_dust.color_ramp = g
+	_dust.amount = 6 + int(round(10 * force))
+	_dust.position = at
+	_dust.restart()
+	_dust.emitting = true
+	_add_shake(1.2 * force)
+
+
 ## Sparks and a kick of the camera, so a landed blow reads as contact.
 func _on_hit_landed(at: Vector2) -> void:
 	if _sparks != null:
@@ -532,6 +681,10 @@ func _add_shake(amount: float) -> void:
 
 func _build_camera() -> void:
 	var cam := Camera2D.new()
+	# Look UP a little. Centred on the knight, a third of every frame was the
+	# rock under the floor he is standing on; the room he is walking into is
+	# the half worth seeing.
+	cam.position = Vector2(0, -16)
 	cam.position_smoothing_enabled = true
 	cam.position_smoothing_speed = 6.0
 	cam.limit_left = 0
@@ -665,6 +818,7 @@ func _track_area() -> void:
 		_area = here
 		Run.see_area(here)
 		hud.show_area(here)
+		_set_ambience(level.theme_name_at(player.global_position))
 
 
 func _track_runes() -> void:

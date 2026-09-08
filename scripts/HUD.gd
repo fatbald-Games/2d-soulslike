@@ -279,9 +279,10 @@ func show_prompt(text: String) -> void:
 ## Fade a region name in over the middle of the screen, hold, fade out.
 func show_area(name: String) -> void:
 	_area.text = name
-	# clear of the left-hand column: at 58 a long weapon name ran straight
-	# through the middle of the region banner
-	_area.center_on(UiTheme.VIEW.x * 0.5, 76)
+	# The one band that is clear of everything: below the left-hand HUD column
+	# (which ends at 73), above the knight's head (the camera looks up, so he
+	# tops out around 93), and clear of every menu heading at 28-49.
+	_area.center_on(UiTheme.VIEW.x * 0.5, 78)
 	if _area_tween != null and _area_tween.is_valid():
 		_area_tween.kill()
 	_area.modulate = Color(1, 1, 1, 0)

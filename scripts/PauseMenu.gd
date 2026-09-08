@@ -14,8 +14,13 @@ signal quit_to_menu
 const ITEMS := ["RESUME", "PROGRESS", "CONTROLS", "OPTIONS", "QUIT TO TITLE"]
 ## Twelve rows is the most that fits between the panel top and the footer band
 ## at this pitch — see PROGRESS_STEP.
-const PROGRESS_ROWS := 12
-const PROGRESS_STEP := 9
+const PROGRESS_ROWS := 13
+const PROGRESS_STEP := 10
+## Thirteen rows do not fit under the usual panel top, and squeezing the pitch
+## instead put the value column's digits on top of each other. So this one page
+## starts higher, with its heading raised to match.
+const PROGRESS_PANEL_Y := 44.0
+const PROGRESS_HEAD_Y := 18
 const OPTION_ITEMS := ["WINDOW", "SCREEN SHAKE", "HUD HINTS", "BACK"]
 
 enum Screen { MAIN, PROGRESS, CONTROLS, OPTIONS }
@@ -53,7 +58,7 @@ func _build() -> void:
 	_show(Screen.MAIN)
 
 
-func _page(heading: String, hint: String) -> Control:
+func _page(heading: String, hint: String, head_y: int = 28) -> Control:
 	var page := Control.new()
 	page.size = UiTheme.VIEW
 	page.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -62,7 +67,7 @@ func _page(heading: String, hint: String) -> Control:
 	var head := PixelLabel.make(heading, 3, UiTheme.BONE_BRIGHT)
 	head.shadow_tint = UiTheme.TITLE_SHADOW
 	head.shadow_offset = Vector2(2, 2)
-	head.center_on(UiTheme.VIEW.x * 0.5, 28)
+	head.center_on(UiTheme.VIEW.x * 0.5, head_y)
 	page.add_child(head)
 
 	UiTheme.add_footer(page, hint)
@@ -86,13 +91,14 @@ func _build_main() -> Control:
 ## the souls bought; the counters say how much of the keep has actually been
 ## seen — the two halves of "am I getting anywhere".
 func _build_progress() -> Control:
-	var page := _page("PROGRESS", "ESC  BACK")
+	var page := _page("PROGRESS", "ESC  BACK", PROGRESS_HEAD_Y)
 	_progress_rows = []
 	# sized for EVERY row: passing one placeholder makes a panel one row tall
 	var sizing: Array = []
 	for i in PROGRESS_ROWS:
 		sizing.append("INSCRIPTIONS READ")
-	var box := UiTheme.add_panel(page, sizing, 1, PROGRESS_STEP, ["00 / 00"], 230.0)
+	var box := UiTheme.add_panel(page, sizing, 1, PROGRESS_STEP, ["00 / 00"], 230.0,
+			PROGRESS_PANEL_Y)
 	_progress_origin = box[0]
 	_progress_w = (box[1] as Vector2).x
 	# five stats, a rule, then the counters
@@ -122,6 +128,7 @@ func _refresh_progress() -> void:
 	rows.append(["REGIONS FOUND", "%d / %d" % [Run.seen_areas.size(), t["areas"]]])
 	rows.append(["INSCRIPTIONS READ", "%d / %d" % [Run.read_runes.size(), t["runes"]]])
 	rows.append(["HOLLOWS SLAIN", "%d" % Run.slain])
+	rows.append(["DEATHS", "%d" % Run.deaths])
 
 	for i in _progress_rows.size():
 		var name_label: PixelLabel = _progress_rows[i][0]

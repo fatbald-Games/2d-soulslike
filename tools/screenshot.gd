@@ -213,6 +213,11 @@ func _warp(tx: int, ty: int) -> void:
 	p.global_position = Vector2((tx + 0.5) * LevelMap.TILE,
 			float((ty + 1) * LevelMap.TILE))
 	p.velocity = Vector2.ZERO
+	# parked next to a hollow for twenty-odd frames per shot, he was arriving at
+	# the last few screens already dead
+	p.health = p.health_max
+	p.stamina = p.stamina_max
+	p.health_changed.emit(p.health, p.health_max)
 	for c in p.get_children():
 		if c is Camera2D:
 			(c as Camera2D).reset_smoothing()   # otherwise the shot is mid-pan

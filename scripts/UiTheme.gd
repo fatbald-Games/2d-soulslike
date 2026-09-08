@@ -73,10 +73,10 @@ const CONTROL_ROWS := [
 ## Centres a panel sized to its contents on `parent`. Returns [origin, size].
 static func add_panel(parent: Node, items: Array, scale_px: int = 2,
 		step: int = MENU_STEP, values: Array = [],
-		min_w: float = 0.0) -> Array:
+		min_w: float = 0.0, top: float = PANEL_Y) -> Array:
 	var size := menu_panel_size(items, scale_px, step, values)
 	size.x = maxf(size.x, min_w)
-	var origin := Vector2(roundf((VIEW.x - size.x) * 0.5), PANEL_Y)
+	var origin := Vector2(roundf((VIEW.x - size.x) * 0.5), top)
 	var p := panel(size)
 	p.position = origin
 	parent.add_child(p)

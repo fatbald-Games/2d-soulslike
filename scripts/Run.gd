@@ -96,6 +96,9 @@ static var lit_bonfires := {}              # "tx,ty" -> true
 static var seen_areas := {}                # area name -> true
 static var read_runes := {}                # "tx,ty" -> true
 static var slain := 0
+## Counted, not hidden. A souls game that will not tell you how many times it
+## killed you is being coy about the only number that describes the run.
+static var deaths := 0
 
 
 static func reset() -> void:
@@ -113,6 +116,7 @@ static func reset() -> void:
 	seen_areas = {}
 	read_runes = {}
 	slain = 0
+	deaths = 0
 
 
 static func rest_at(pos: Vector2) -> void:

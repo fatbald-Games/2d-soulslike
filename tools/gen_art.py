@@ -194,6 +194,9 @@ def stone_floor(seed=1):
 # level data, not art. It is half the effect either way: cold blue stone lit
 # warm orange still reads as the same room you just left.
 
+## How many variants of each stone tile get generated. Level.gd must agree.
+TILE_VARIANTS = 4
+
 THEMES = {
     "gate": {
         "ramp": [(24, 22, 32), (40, 39, 54), (58, 56, 78), (82, 80, 106)],
@@ -209,13 +212,17 @@ THEMES = {
         "detail": "algae"},
     "rootworks": {
         "ramp": [(24, 18, 30), (40, 30, 48), (56, 44, 66), (78, 62, 88)],
-        "detail": "spore"},
+        "detail": "spore", "speck": 0.5},
     "forge": {
-        "ramp": [(32, 20, 16), (54, 32, 24), (78, 46, 32), (106, 62, 40)],
-        "detail": "ember"},
+        # pulled back from a full-saturation red: a whole screen of it was one
+        # loud colour with the knight lost somewhere inside it
+        "ramp": [(30, 21, 19), (50, 34, 28), (72, 48, 38), (98, 64, 46)],
+        # sparse on purpose: at full density the embers stopped being sparks in
+        # the stone and became the stone
+        "detail": "ember", "speck": 0.35},
     "vault": {
         "ramp": [(28, 34, 44), (46, 56, 72), (68, 82, 102), (96, 116, 140)],
-        "detail": "ice"},
+        "detail": "ice", "speck": 0.7},
     "ramparts": {
         "ramp": [(22, 24, 34), (36, 40, 54), (52, 58, 76), (74, 82, 104)],
         "detail": "none"},
@@ -268,7 +275,7 @@ def themed_floor(theme, seed):
         px[8, y] = _rgba(r[0])
     for _ in range(10):
         px[rng.randint(1, 15), rng.randint(1, 15)] = _rgba(r[2])
-    _speckle(px, rng, t["detail"], 5)
+    _speckle(px, rng, t["detail"], int(round(5 * t.get("speck", 1.0))))
     return img
 
 
@@ -296,18 +303,195 @@ def themed_wall(theme, seed):
         for x in range(16):
             if px[x, y] != dark:
                 px[x, y] = _rgba(r[2])
-    _speckle(px, rng, t["detail"], 3)
+    _speckle(px, rng, t["detail"], int(round(3 * t.get("speck", 1.0))))
     return img
+
+
+# --- the lit top surface of solid ground -------------------------------------
+# Without this every region was one flat field of noise: you could not see where
+# the floor you stand on ENDED and the wall behind it began. A crust on the top
+# face — ash, bone chips, wet algae, roots, embers, frost — is what turns a
+# tiled texture back into ground.
+CAP_COLOURS = {
+    "gate":      [(96, 92, 104), (62, 59, 74)],     # ash dust
+    "descent":   [(76, 80, 100), (46, 48, 66)],     # bare lit lip
+    "ossuary":   [(164, 156, 136), (110, 103, 88)],  # bone chips
+    "cistern":   [(70, 126, 102), (34, 76, 68)],    # wet algae
+    "rootworks": [(104, 158, 96), (52, 94, 58)],    # moss and rootlets
+    "forge":     [(186, 92, 40), (112, 46, 22)],    # cooling embers
+    "vault":     [(196, 220, 238), (130, 162, 192)],  # frost
+    "ramparts":  [(204, 208, 220), (134, 142, 162)],  # wind-blown ash
+}
+
+
+def themed_cap(theme, seed):
+    """A floor tile with its top face crusted over and lit.
+
+    The crust is 2-3px of ragged material, then a dark seam a couple of rows
+    down. The seam matters as much as the crust: it is the shadow that makes
+    the lip read as an edge you could stand on rather than a change of colour.
+    """
+    img = themed_floor(theme, seed)
+    px = img.load()
+    hi, lo = [_rgba(c) for c in CAP_COLOURS[theme]]
+    dark = _rgba(THEMES[theme]["ramp"][0])
+    rng = random.Random(seed * 31 + 7)
+    for x in range(16):
+        h = 2 + (1 if rng.random() < 0.42 else 0)
+        for y in range(h):
+            px[x, y] = hi if y == 0 else lo
+        if rng.random() < 0.24:                 # material dribbling down the face
+            px[x, h] = lo
+    for x in range(16):                         # the shadow under the crust
+        if rng.random() < 0.72:
+            px[x, 4] = dark
+    return img
+
+
+# ================================================================== DECO ======
+# Silhouettes hung in the open space in front of the back wall. They are drawn
+# almost black on purpose: the point is to break up a flat brick field with
+# SHAPE, not to add another competing texture. Level.gd tints each one with its
+# region's stone colour, so one sheet dresses all eight.
+#
+# 16x32 frames, anchored top-left; things that hang use the top rows, things
+# that stand use the bottom.
+# Pitched to sit in the same range as the stone ramps: the props are darkened
+# twice over on the way to the screen (the region's ambient, then their own
+# tint), and at true silhouette values they simply vanished.
+DECO_PAL = {
+    '.': T,
+    'o': (26, 24, 33, 255),      # silhouette core
+    'd': (52, 49, 64, 255),      # body
+    'm': (84, 80, 100, 255),     # lit side
+    'l': (124, 118, 140, 255),   # rim highlight
+    'b': (132, 126, 112, 255),   # bone / pale
+    'B': (186, 178, 160, 255),
+}
+
+DECO_CHAIN = [
+    "......dm........", "......om........", "......dm........", ".....odmo.......",
+    ".....o..o.......", ".....odmo.......", "......dm........", "......om........",
+    "......dm........", ".....odmo.......", ".....o..o.......", ".....odmo.......",
+    "......dm........", "......om........", "......dm........", ".....odmo.......",
+    ".....o..o.......", ".....odmo.......", "......dm........", "......om........",
+    "......dm........", ".....odmo.......", ".....o..o.......", ".....odmo.......",
+    "......dm........", "......om........", "....oodmoo......", "...od....do.....",
+    "...o.dmmm.o.....", "....o.dm.o......", ".....oooo.......", "................",
+]
+
+DECO_PILLAR = [
+    "..oddmmmmlddo...", "..od........do..", "..oddmmmmlddo...", "...odmmmmld o...",
+    "...od mmmml do..", "....odmmmmldo...", "....od mmml do..", "....odmmmmldo...",
+    "....o.dmmml.o...", "....odmmmmldo...", "....od.mml..o...", "....odmmmmldo...",
+    "....odmmm.ldo...", "....odmmmmldo...", "....o..mml..o...", "....odmmmmldo...",
+    "....odmmmmldo...", "....od.mmml.o...", "....odmmmmldo...", "....odmm.mldo...",
+    "....odmmmmldo...", "....o.dmmml.o...", "....odmmmmldo...", "....odmmmmldo...",
+    "...odmmmmmmldo..", "...od........do.", "..oddmmmmmmlddo.", "..od.........do.",
+    "..oddmmmmmmlddo.", "...o.........o..", "................", "................",
+]
+
+DECO_BONES = [
+    "................", "................", "................", "................",
+    "................", "................", "................", "................",
+    "................", "................", "................", "................",
+    "................", "................", "................", "................",
+    "................", "................", "..........bo....", ".........obBbo..",
+    ".....bo...ob.bo.", "....obBbo..obbo.", "...ob...bo..oo..", "..bo.bo..b......",
+    ".obBbo.obBbo....", "ob...bo....bo...", ".....b..bo...b..", "obbo..obBbo.obo.",
+    "o..bo.b...bo.b..", "obbbo.obbbbo.bo.", "oooooooooooooooo", "................",
+]
+
+DECO_ROOTS = [
+    ".......dm.......", "......odmo......", "......dm.o......", ".....odm..o.....",
+    ".....dm...dm....", "....odmo..om....", "....dm.....dm...", "...odm..o..om...",
+    "...dm...dm..dm..", "..odmo..om..om..", "..dm.....dm.dm..", ".odm..o..om.om..",
+    ".dm...dm..dm.dm.", "odmo..om..om.om.", "dm.....dm.dm.dm.", "m..o...om.om.om.",
+    "...dm...dm.dm.m.", "...om...om.om...", "....dm...dm.m...", "....om...om.....",
+    ".....dm...m.....", ".....om.........", "......m.........", "................",
+    "................", "................", "................", "................",
+    "................", "................", "................", "................",
+]
+
+DECO_ICICLES = [
+    "oBbo.obBbo.oBbo.", "oBbo.obBbo.oBbo.", ".Bbo.obBbo.oBb..", ".Bb..obBbo..Bb..",
+    ".Bb..obBbo..Bb..", ".b...obBb...b...", ".b....bBb...b...", ".b....bBb...b...",
+    "......bBb.......", "......bBb.......", "......bB........", "......bB........",
+    ".......b........", ".......b........", "................", "................",
+    "................", "................", "................", "................",
+    "................", "................", "................", "................",
+    "................", "................", "................", "................",
+    "................", "................", "................", "................",
+]
+
+DECO_BANNER = [
+    "oooooooooooooooo", "od############do", ".od##########do.", ".od##########do.",
+    ".od##########do.", ".od##########do.", ".od##########do.", ".od####@#####do.",
+    ".od###@@@####do.", ".od##@@@@@###do.", ".od###@@@####do.", ".od####@#####do.",
+    ".od##########do.", ".od##########do.", ".od##########do.", ".od##########do.",
+    ".od##########do.", ".od##########do.", ".od##########do.", ".od##########do.",
+    ".od#########do..", ".od########do...", "..od######do....", "...od####do.....",
+    "....od##do......", ".....odo........", "................", "................",
+    "................", "................", "................", "................",
+]
+
+DECO_SKULL_SPIKE = [
+    "................", "................", "................", "................",
+    "................", "................", "................", "................",
+    "................", "......bBb.......", ".....obBBbo.....", ".....bB..Bb.....",
+    ".....bo..ob.....", ".....bBbbBb.....", "......bBBb......", ".......dm.......",
+    ".......dm.......", ".......dm.......", ".......dm.......", ".......dm.......",
+    ".......dm.......", ".......dm.......", ".......dm.......", ".......dm.......",
+    ".......dm.......", ".......dm.......", ".......dm.......", ".......dm.......",
+    "......odmo......", ".....od..do.....", "....o......o....", "................",
+]
+
+DECO_ARCH = [
+    "oooooooooooooooo", "od############do", "odm##########mdo", "odmm########mmdo",
+    "odmmm######mmmdo", "odmmml####lmmmdo", "odmmm.l##l.mmmdo", "odmm...ll...mmdo",
+    "odm..........mdo", "od............do", "od............do", "od............do",
+    "od............do", "od............do", "od............do", "od............do",
+    "od............do", "od............do", "od............do", "od............do",
+    "od............do", "od............do", "od............do", "od............do",
+    "od............do", "od............do", "od............do", "od............do",
+    "od############do", "oooooooooooooooo", "................", "................",
+]
+
+DECO_NAMES = ["chain", "pillar", "bones", "roots", "icicles", "banner",
+              "skull_spike", "arch"]
+DECO_GRIDS = [DECO_CHAIN, DECO_PILLAR, DECO_BONES, DECO_ROOTS, DECO_ICICLES,
+              DECO_BANNER, DECO_SKULL_SPIKE, DECO_ARCH]
+
+
+def deco_frames():
+    pal = dict(DECO_PAL)
+    pal['#'] = (92, 42, 44, 255)      # banner cloth
+    pal['@'] = (156, 70, 56, 255)     # its faded device
+    out = []
+    for g in DECO_GRIDS:
+        rows = [r.ljust(16, '.')[:16] for r in g]
+        while len(rows) < 32:
+            rows.append('.' * 16)
+        out.append(grid_to_img(rows[:32], pal))
+    return out
 
 
 def water_tile():
     """Standing water in the cistern: you wade through it, so it is drawn over
-    the floor rather than replacing it, and it never collides."""
+    the floor rather than replacing it, and it never collides.
+
+    Level.gd draws a lit surface line on whichever tiles have air above them,
+    so the body of water gets one edge instead of a stripe per tile.
+    """
     img = Image.new("RGBA", (16, 16), T)
     px = img.load()
+    rng = random.Random(404)
     for y in range(16):
         for x in range(16):
             px[x, y] = (30, 74, 92, 118)
+    for _ in range(14):                       # a little silt and movement
+        x, y = rng.randint(0, 15), rng.randint(2, 15)
+        px[x, y] = (44, 96, 114, 130)
     for x in range(16):
         px[x, 0] = (96, 168, 180, 190)         # the surface catches the light
         px[x, 1] = (52, 108, 126, 150)
@@ -522,8 +706,11 @@ def bonfire_frames():
         for x in range(cold.width):
             r, g, b, a = px[x, y]
             if a:
-                v = int(r * 0.30 + g * 0.42 + b * 0.28)
-                px[x, y] = (v, v, int(v * 1.15), a)
+                # keep some value in it: at true luminance the dead fire was
+                # invisible against the floor, and you cannot walk toward
+                # something you cannot see
+                v = int(min(255, (r * 0.30 + g * 0.42 + b * 0.28) * 1.22 + 8))
+                px[x, y] = (v, v, int(min(255, v * 1.15)), a)
     frames.append(cold)
     return frames
 
@@ -1845,9 +2032,17 @@ def main():
     save(soft_light(), "light_soft.png")
 
     # --- one stone set per region ---
+    # Four variants of each, picked per tile by a positional hash in Level.gd.
+    # One tile repeated 24 times across a 384px screen reads as wallpaper; four
+    # in a hashed shuffle reads as stone.
     for name in THEMES:
-        save(themed_floor(name, 11), "tile_floor_%s.png" % name)
-        save(themed_wall(name, 13), "tile_wall_%s.png" % name)
+        save(hsheet([themed_floor(name, 11 + i * 37) for i in range(TILE_VARIANTS)]),
+             "tile_floor_%s.png" % name)
+        save(hsheet([themed_wall(name, 13 + i * 41) for i in range(TILE_VARIANTS)]),
+             "tile_wall_%s.png" % name)
+        save(hsheet([themed_cap(name, 5 + i * 43) for i in range(TILE_VARIANTS)]),
+             "tile_cap_%s.png" % name)
+    save(hsheet(deco_frames()), "deco.png")
     save(water_tile(), "tile_water.png")
     save(hsheet(mushroom_frames()), "mushroom.png")
     save(hsheet(brazier_frames()), "brazier.png")

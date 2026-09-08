@@ -609,6 +609,28 @@ func _phase_weapons() -> void:
 				missing.append(d["id"])
 		_ok("every other weapon lies somewhere in the keep", missing.is_empty(),
 				"missing %s" % str(missing))
+		# --- the world's dressing, checked from the map rather than by eye ---
+		_ok("every tile row carries a stone theme",
+				LevelMap.THEME_OF.size() == LevelMap.H
+				and (LevelMap.THEME_OF[0] as String).length() == LevelMap.W,
+				"%d rows" % LevelMap.THEME_OF.size())
+		var themed := {}
+		for row in LevelMap.THEME_OF:
+			for i in (row as String).length():
+				themed[(row as String)[i]] = true
+		_ok("every region's stone is actually cut somewhere",
+				themed.size() == LevelMap.AREAS.size(),
+				"%d of %d themes used" % [themed.size(), LevelMap.AREAS.size()])
+		var dressed := {}
+		for e in LevelMap.ENTITIES:
+			if e["kind"] == "deco":
+				dressed[_main.level.theme_name_at(Vector2(
+						(int(e["x"]) + 0.5) * LevelMap.TILE,
+						(int(e["y"]) + 0.5) * LevelMap.TILE))] = true
+		_ok("every region is dressed with props",
+				dressed.size() == LevelMap.AREAS.size(),
+				"%d of %d regions have deco" % [dressed.size(), LevelMap.AREAS.size()])
+
 		_ok("the level builds a pickup for each of them",
 				_main._pickups.size() == Weapons.DEFS.size() - 1,
 				"%d pickups" % _main._pickups.size())
