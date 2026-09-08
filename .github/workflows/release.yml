@@ -1,0 +1,159 @@
+name: Release
+
+# Tag a commit and the release builds itself:
+#
+#   git tag v1.0.1 && git push origin v1.0.1
+#
+# One Linux runner builds all three desktop platforms, because Godot exports
+# them all from anywhere. Everything the game is made of is regenerated from its
+# generator first and the full test suite has to pass, so a release can never
+# ship a PNG that no longer matches the code that draws it.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build and publish (e.g. v1.0.1)"
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  GODOT_VERSION: "4.3"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Work out the version
+        id: ver
+        run: |
+          TAG="${{ github.event.inputs.tag }}"
+          [ -n "$TAG" ] || TAG="${GITHUB_REF_NAME}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Building $TAG"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Pillow
+        run: python3 -m pip install --quiet Pillow
+
+      - name: Cache Godot and export templates
+        id: godot-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/godot
+            ~/.local/share/godot/export_templates
+          key: godot-${{ env.GODOT_VERSION }}-stable
+
+      - name: Install Godot and export templates
+        if: steps.godot-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          V="${GODOT_VERSION}-stable"
+          BASE="https://github.com/godotengine/godot/releases/download/$V"
+          mkdir -p ~/godot "$HOME/.local/share/godot/export_templates"
+          curl -fsSL -o /tmp/godot.zip "$BASE/Godot_v${V}_linux.x86_64.zip"
+          unzip -q /tmp/godot.zip -d ~/godot
+          curl -fsSL -o /tmp/templates.tpz "$BASE/Godot_v${V}_export_templates.tpz"
+          unzip -q /tmp/templates.tpz -d /tmp/tpl
+          DEST="$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+          mkdir -p "$DEST"
+          cp /tmp/tpl/templates/* "$DEST/"
+
+      - name: Put Godot on PATH
+        run: |
+          BIN="$(find ~/godot -maxdepth 1 -name 'Godot_v*' -type f | head -n 1)"
+          chmod +x "$BIN"
+          echo "GODOT=$BIN" >> "$GITHUB_ENV"
+
+      - name: Regenerate every asset from its generator
+        run: |
+          python3 tools/gen_art.py   > /dev/null
+          python3 tools/gen_audio.py > /dev/null
+          python3 tools/gen_level.py
+
+      - name: Fail if a generated asset is not what is committed
+        run: |
+          if ! git diff --quiet; then
+            echo "::error::Committed assets do not match their generators. Re-run the"
+            echo "::error::generators and commit the result."
+            git --no-pager diff --stat
+            exit 1
+          fi
+
+      - name: Test
+        run: tools/run_tests.sh
+
+      - name: Export
+        run: |
+          set -euo pipefail
+          mkdir -p build/windows build/linux build/macos
+          "$GODOT" --headless --path . --import >/dev/null 2>&1 || true
+          "$GODOT" --headless --path . --import >/dev/null 2>&1 || true
+          for preset in "Windows Desktop" "Linux" "macOS"; do
+            echo "--- $preset ---"
+            "$GODOT" --headless --path . --export-release "$preset"
+          done
+
+      - name: Package
+        id: pack
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.ver.outputs.tag }}"
+          mkdir -p dist
+          cp README.md LICENSE build/linux/   || true
+          cp README.md LICENSE build/windows/ || true
+          cp icon.png build/linux/  || true
+          cp icon.png icon.ico build/windows/ || true
+          # the installer travels with the game, so the shortcut it creates can
+          # update in place without the player fetching anything again
+          cp installer/install.sh  build/linux/
+          cp installer/install.ps1 build/windows/
+          ( cd build/linux   && zip -qr "../../dist/AshenHollow-$TAG-linux-x86_64.zip" . )
+          ( cd build/windows && zip -qr "../../dist/AshenHollow-$TAG-windows-x86_64.zip" . )
+          cp build/macos/AshenHollow.zip "dist/AshenHollow-$TAG-macos-universal.zip"
+          ( cd dist && sha256sum *.zip > SHA256SUMS )
+          ls -lh dist
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.ver.outputs.tag }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          cat > /tmp/notes.md <<NOTES
+          ## Install
+
+          The installer fetches this release, verifies it against \`SHA256SUMS\`
+          and installs per-user with no admin rights. Re-running it updates in
+          place, and the shortcut it creates checks for a new release every time
+          you play.
+
+          **Windows** (PowerShell):
+          \`\`\`powershell
+          irm https://raw.githubusercontent.com/$REPO/main/installer/install.ps1 | iex
+          \`\`\`
+
+          **Linux / macOS**:
+          \`\`\`bash
+          curl -fsSL https://raw.githubusercontent.com/$REPO/main/installer/install.sh | bash
+          \`\`\`
+
+          Or download a zip below and run the game directly. Saves live outside
+          the install directory, so updating never touches them.
+          NOTES
+          gh release create "$TAG" \
+            --repo "$REPO" \
+            --title "Ashen Hollow $TAG" \
+            --notes-file /tmp/notes.md \
+            dist/AshenHollow-*.zip dist/SHA256SUMS

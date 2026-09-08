@@ -93,6 +93,21 @@ run_suite() {
 run_suite "Combat slice" "res://tools/smoke_test.gd"
 run_suite "Menus" "res://tools/menu_test.gd"
 
+# The installer is tested against a fake GitHub served on localhost: a real
+# install, an update to a newer tag, a corrupted download and an uninstall.
+# Testing an installer any other way means publishing a release to find out it
+# is broken, which is the wrong order.
+if command -v zip >/dev/null 2>&1; then
+	echo
+	echo "=== Installer ==="
+	if ! "$PROJECT_DIR/installer/test_install.sh"; then
+		status=1
+	fi
+else
+	echo
+	echo "zip missing - installer test skipped." >&2
+fi
+
 echo
 if [[ $status -eq 0 ]]; then
 	echo "ALL GREEN"
