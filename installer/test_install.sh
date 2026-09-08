@@ -107,6 +107,10 @@ write_api() {      # write_api <tag> [bad-checksum]
 JSON
 }
 
+# The repository copies, served where the raw.githubusercontent fallback looks
+mkdir -p "$ROOT/serve/raw"
+cp "$HERE/install.sh" "$HERE/install.ps1" "$ROOT/serve/raw/"
+
 make_release "v0.0.1" "ONE"
 make_release "v0.0.2" "TWO"
 write_api "v0.0.1"
@@ -130,6 +134,7 @@ export AH_API="http://127.0.0.1:$PORT"
 export AH_PREFIX="$ROOT/home/game"
 export AH_BIN_DIR="$ROOT/home/bin"
 export AH_DESKTOP_DIR="$ROOT/home/applications"
+export AH_RAW="http://127.0.0.1:$PORT/raw"
 export AH_DRY_RUN=1
 
 echo "— installer test —"
@@ -206,6 +211,33 @@ ok "and says it was not listed" \
 	"$(printf '%s' "$out" | grep -q 'not listed in SHA256SUMS' && echo 0 || echo 1)"
 eq "and leaves the working install alone" "$(cat "$AH_PREFIX/version.txt")" "$before"
 
+# --- 7c. installed by pipe, the way the documented one-liner does -------------
+# `curl ... | bash` makes $0 the string "bash", so the installer cannot copy
+# itself and has to fetch its own copy instead. Without that, the shortcut it
+# writes points at a script that was never installed.
+write_api "v0.0.1"
+rm -rf "$AH_PREFIX" "$AH_BIN_DIR"
+out="$(cat "$HERE/install.sh" | bash 2>&1)"; rc=$?
+ok "a piped install succeeds" "$rc"
+ok "the game is installed" "$([[ -x "$AH_PREFIX/AshenHollow.x86_64" ]] && echo 0 || echo 1)"
+ok "the updater is installed even though it could not copy itself" \
+	"$([[ -s "$AH_PREFIX/install.sh" ]] && echo 0 || echo 1)"
+ok "and it is a real script, not an error page" \
+	"$(head -n 1 "$AH_PREFIX/install.sh" | grep -q '^#!' && echo 0 || echo 1)"
+out="$("$AH_BIN_DIR/ashen-hollow" 2>&1)"; rc=$?
+ok "the shortcut it wrote actually runs the game" \
+	"$([[ $rc -eq 0 ]] && printf '%s' "$out" | grep -q 'would launch' && echo 0 || echo 1)"
+
+# --- 7d. and still works when even that fetch fails --------------------------
+rm -rf "$AH_PREFIX" "$AH_BIN_DIR"
+out="$(AH_RAW=http://127.0.0.1:1/raw bash -c "cat '$HERE/install.sh' | bash" 2>&1)"; rc=$?
+ok "an install with no updater still succeeds" "$rc"
+ok "and says the game will not self-update" \
+	"$(printf '%s' "$out" | grep -q 'have to re-run this script' && echo 0 || echo 1)"
+out="$("$AH_BIN_DIR/ashen-hollow" 2>&1)"; rc=$?
+ok "the shortcut falls back to playing directly" \
+	"$([[ $rc -eq 0 ]] && echo 0 || echo 1)"
+
 # --- 8. uninstall -------------------------------------------------------------
 out="$("$HERE/install.sh" --uninstall 2>&1)"; rc=$?
 ok "uninstall succeeds" "$rc"
@@ -273,6 +305,14 @@ if [[ -n "$PWSH" ]]; then
 		"$(printf '%s' "$out" | grep -q 'Checksum mismatch' && echo 0 || echo 1)"
 	eq "ps1: and leaves the working install alone" \
 		"$(cat "$AH_PREFIX/version.txt")" "$before"
+
+	# the same piped case: `irm ... | iex` leaves $PSCommandPath empty
+	write_api "v0.0.1"
+	rm -rf "$AH_PREFIX"
+	out="$("$PWSH" -NoProfile -Command "& { $(cat "$HERE/install.ps1") }" 2>&1)"; rc=$?
+	ok "ps1: an install with no script path succeeds" "$rc"
+	ok "ps1: the updater is fetched instead of copied" \
+		"$([[ -s "$AH_PREFIX/install.ps1" ]] && echo 0 || echo 1)"
 
 	out="$("$PWSH" -NoProfile -File "$HERE/install.ps1" -Uninstall 2>&1)"; rc=$?
 	ok "ps1: uninstall succeeds" "$rc"

@@ -47,6 +47,8 @@ try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::
 $Name = 'Ashen Hollow'
 $Repo = if ($env:AH_REPO) { $env:AH_REPO } else { 'fettglatze/2d-soulslike' }
 $Api  = if ($env:AH_API)  { $env:AH_API }  else { 'https://api.github.com' }
+$Raw  = if ($env:AH_RAW)  { $env:AH_RAW }
+        else { "https://raw.githubusercontent.com/$Repo/main/installer" }
 $Prefix = if ($env:AH_PREFIX) { $env:AH_PREFIX }
           elseif ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'Programs\AshenHollow' }
           else { Join-Path ([System.IO.Path]::GetTempPath()) 'AshenHollow' }
@@ -132,19 +134,59 @@ function Install-Shortcuts {
     }
     $ps = Join-Path $PSHOME 'powershell.exe'
     if (-not (Test-Path $ps)) { $ps = 'powershell.exe' }
+    $startMenuPath = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Ashen Hollow.lnk'
+    $desktopPath = Join-Path ([Environment]::GetFolderPath('Desktop')) 'Ashen Hollow.lnk'
     $script = Join-Path $Prefix 'install.ps1'
-    $args = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$script`" -Launch"
     $icon = Join-Path $Prefix 'icon.ico'
     if (-not (Test-Path $icon)) { $icon = Get-GameBinary }
 
-    $startMenu = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Ashen Hollow.lnk'
-    $desktop = Join-Path ([Environment]::GetFolderPath('Desktop')) 'Ashen Hollow.lnk'
-    foreach ($link in @($startMenu, $desktop)) {
+    # No updater installed? Point the shortcut straight at the game, so a
+    # failed self-update install can never become a shortcut that does nothing.
+    if (-not (Test-Path $script)) {
+        $exe = Get-GameBinary
+        if ($exe) {
+            foreach ($link in @($startMenuPath, $desktopPath)) {
+                New-Shortcut $link $exe '' $icon | Out-Null
+            }
+        }
+        return
+    }
+    $args = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$script`" -Launch"
+
+    foreach ($link in @($startMenuPath, $desktopPath)) {
         if (-not (New-Shortcut $link $ps $args $icon)) {
             Say 'Shortcuts skipped (not running on Windows).'
             return
         }
     }
+}
+
+# A copy of this script has to end up next to the game, because that copy is
+# what the shortcut runs to self-update. Three ways it can get there, in order:
+#
+#   1. the release package ships it (the release workflow puts it in the zip)
+#   2. we were run from a file and can simply copy ourselves
+#   3. neither, so fetch it from the repository
+#
+# Step 3 is not hypothetical: `irm ... | iex` leaves $PSCommandPath empty, and
+# the copy that used to be attempted here failed silently - leaving a Start Menu
+# shortcut pointing at a script that was never installed.
+function Install-Updater {
+    param([string]$Dir)
+    $dest = Join-Path $Dir 'install.ps1'
+    if (Test-Path $dest) { return $true }
+    if ($PSCommandPath -and (Test-Path $PSCommandPath)) {
+        Copy-Item $PSCommandPath $dest -Force
+        return $true
+    }
+    try {
+        Save-Url "$Raw/install.ps1" $dest
+        if ((Get-Item $dest).Length -gt 0) { return $true }
+    } catch { }
+    if (Test-Path $dest) { Remove-Item -Force $dest }
+    Warn 'Could not install the updater alongside the game.'
+    Warn 'The game will play, but you will have to re-run this script to update.'
+    return $false
 }
 
 function Get-GameBinary {
@@ -239,7 +281,7 @@ function Install-Game {
         }
         Move-Item $unpacked "$Prefix.new"
         Set-Content -Path (Join-Path "$Prefix.new" 'version.txt') -Value $tag -NoNewline
-        Copy-Item $PSCommandPath (Join-Path "$Prefix.new" 'install.ps1') -Force -ErrorAction SilentlyContinue
+        Install-Updater "$Prefix.new" | Out-Null
         if (Test-Path $Prefix) { Move-Item $Prefix "$Prefix.old" }
         Move-Item "$Prefix.new" $Prefix
         if (Test-Path "$Prefix.old") { Remove-Item -Recurse -Force "$Prefix.old" }
