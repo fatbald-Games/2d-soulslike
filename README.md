@@ -50,7 +50,14 @@ settings live in Godot's user data directory, **outside** the install, so
 updating and uninstalling never touch them.
 
 Overridable through the environment: `AH_REPO`, `AH_API` (a mirror), `AH_RAW`,
-`AH_PREFIX`, `AH_TOKEN` (for a private repository).
+`AH_PREFIX`, `AH_TOKEN`.
+
+> **The repository has to be public for the one-liners to work.** They fetch the
+> script from `raw.githubusercontent.com` and the build from the release, and a
+> private repository answers both with 404 for anyone who is not signed in. If
+> you want to keep it private, everyone who installs needs a token
+> (`AH_TOKEN=ghp_...`), which is not something to hand around — publish the
+> repository, or distribute the zips another way.
 
 ### Or from source
 
@@ -367,7 +374,7 @@ GODOT=/path/to/godot tools/run_tests.sh # or explicitly
 ```
 
 The runner checks the **level layout** first (reachability, above) and then runs
-**three suites**, together **258 assertions**:
+**three suites**, together **261 assertions**:
 
 - `tools/smoke_test.gd` (123) boots the real `Main.tscn` and drives it a physics
   frame at a time: landing and movement, the stamina economy (including: an
@@ -378,12 +385,12 @@ The runner checks the **level layout** first (reachability, above) and then runs
   harder and slower, that the spear reaches further and hits softer, that the bow
   puts a real arrow in the world that damages what it hits, that the shield
   absorbs a blow and breaks when the stamina runs out.
-- `installer/test_install.sh` (65) serves a **fake GitHub** on localhost and runs
+- `installer/test_install.sh` (68) serves a **fake GitHub** on localhost and runs
   both installers against it for real: a clean install, a no-op re-run, `--check`
   reporting an update, the update itself, `--launch`, an unreachable GitHub, a
   corrupted download, an asset missing from the checksum file, an install run
-  through a pipe the way the documented one-liner does, and uninstall —
-  asserting on the filesystem after each. Testing an installer any other way
+  through a pipe the way the documented one-liner does, an install against a
+  private repository, and uninstall — asserting on the filesystem after each. Testing an installer any other way
   means publishing a release to find out it is broken, which is the wrong order.
   PowerShell runs on Linux, so the Windows path is covered here too.
 - `tools/menu_test.gd` (64) walks a player's path: navigating, opening CONTROLS

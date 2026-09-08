@@ -195,8 +195,10 @@ ensure_updater() {
 		chmod +x "$dest" 2>/dev/null
 		return 0
 	fi
-	if curl -fsSL --retry 2 -o "$dest" "$RAW/install.sh" 2>/dev/null \
-			&& [[ -s "$dest" ]]; then
+	# the token goes along here too: on a private repository the raw endpoint
+	# answers 404 without it, exactly like the release API does
+	if curl -fsSL --retry 2 ${AH_TOKEN:+-H "Authorization: Bearer $AH_TOKEN"} \
+			-o "$dest" "$RAW/install.sh" 2>/dev/null && [[ -s "$dest" ]]; then
 		chmod +x "$dest" 2>/dev/null
 		return 0
 	fi

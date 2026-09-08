@@ -121,8 +121,9 @@ write_api "v0.0.1"
 # Started WITHOUT a subshell: wrapping it in ( ... ) & makes $! the subshell's
 # pid, so the cleanup trap killed the wrapper and left the server running on the
 # port — which then answered the next test run from a deleted directory.
-python3 -m http.server "$PORT" --bind 127.0.0.1 --directory "$ROOT/serve" \
-	>/dev/null 2>&1 &
+# Not python -m http.server: the mock also has to be able to refuse a request
+# that carries no token, which is how a private repository behaves.
+python3 "$HERE/mock_github.py" "$PORT" "$ROOT/serve" >/dev/null 2>&1 &
 SERVER_PID=$!
 for _ in $(seq 1 40); do
 	curl -fsS "http://127.0.0.1:$PORT/repos/$REPO/releases/latest" >/dev/null 2>&1 && break
@@ -237,6 +238,24 @@ ok "and says the game will not self-update" \
 out="$("$AH_BIN_DIR/ashen-hollow" 2>&1)"; rc=$?
 ok "the shortcut falls back to playing directly" \
 	"$([[ $rc -eq 0 ]] && echo 0 || echo 1)"
+
+# --- 7e. a private repository ------------------------------------------------
+# Everything the installer fetches has to carry the token, not just the release
+# API: on a private repo the raw endpoint 404s without it, and the updater would
+# quietly fail to install exactly as it did before the pipe fix.
+write_api "v0.0.1"
+rm -rf "$AH_PREFIX" "$AH_BIN_DIR"
+out="$(AH_RAW="http://127.0.0.1:$PORT/private/raw" AH_TOKEN=secret \
+	bash -c "cat '$HERE/install.sh' | bash" 2>&1)"; rc=$?
+ok "a piped install against a private repo succeeds" "$rc"
+ok "the updater is fetched with the token" \
+	"$([[ -s "$AH_PREFIX/install.sh" ]] && echo 0 || echo 1)"
+
+rm -rf "$AH_PREFIX" "$AH_BIN_DIR"
+out="$(AH_RAW="http://127.0.0.1:$PORT/private/raw" \
+	bash -c "cat '$HERE/install.sh' | bash" 2>&1)"; rc=$?
+ok "and without a token that fetch is refused, not silently skipped" \
+	"$(printf '%s' "$out" | grep -q 'have to re-run this script' && echo 0 || echo 1)"
 
 # --- 8. uninstall -------------------------------------------------------------
 out="$("$HERE/install.sh" --uninstall 2>&1)"; rc=$?
