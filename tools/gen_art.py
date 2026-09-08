@@ -1294,7 +1294,7 @@ os.makedirs(UI_OUT, exist_ok=True)
 # looks a glyph up purely by its index in here.
 # '+' is appended LAST on purpose: a glyph is found by its index in this
 # string, so adding to the end leaves every existing index untouched.
-FONT_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,:!?'-()/ +"
+FONT_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,:!?'-()/ +%"
 GLYPH_W, GLYPH_H = 5, 7
 CELL_W, CELL_H = 6, 8
 
@@ -1347,6 +1347,9 @@ GLYPHS = {
     '/': ["....#", "....#", "...#.", "..#..", ".#...", "#....", "#...."],
     ' ': [".....", ".....", ".....", ".....", ".....", ".....", "....."],
     '+': [".....", "..#..", "..#..", "#####", "..#..", "..#..", "....."],
+    # appended LAST, like '+' before it: a glyph inserted anywhere else
+    # renumbers the whole sheet and every label in the game shifts one letter
+    '%': ["##..#", "##.#.", "...#.", "..#..", ".#...", ".#.##", "#..##"],
 }
 
 # Menu layout, shared by the backdrop, the mock-up and MainMenu.gd. The

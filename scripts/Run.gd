@@ -91,14 +91,162 @@ static func cycle_weapon(dir: int) -> int:
 	return weapon
 
 
+# --- the map ----------------------------------------------------------------
+## One byte per tile: 0 never seen, 1 walked past. Sixteen screens of keep with
+## no map at all is the single most-repeated complaint about this whole genre,
+## and at 384x128 tiles the map is exactly one pixel per tile — it fits the
+## screen at 1:1 without scaling anything.
+static var explored := PackedByteArray()
+
+
+static func map_ready() -> void:
+	if explored.size() != LevelMap.W * LevelMap.H:
+		explored = PackedByteArray()
+		explored.resize(LevelMap.W * LevelMap.H)
+
+
+static func is_explored(tx: int, ty: int) -> bool:
+	if tx < 0 or ty < 0 or tx >= LevelMap.W or ty >= LevelMap.H:
+		return false
+	return explored[ty * LevelMap.W + tx] != 0
+
+
+## Reveal a disc around him. Returns how many tiles were NEW, so the caller can
+## skip rebuilding anything when nothing changed.
+static func see_tiles(cx: int, cy: int, radius: int) -> int:
+	map_ready()
+	var found := 0
+	var r2 := radius * radius
+	for dy in range(-radius, radius + 1):
+		var ty := cy + dy
+		if ty < 0 or ty >= LevelMap.H:
+			continue
+		for dx in range(-radius, radius + 1):
+			var tx := cx + dx
+			if tx < 0 or tx >= LevelMap.W or dx * dx + dy * dy > r2:
+				continue
+			var i := ty * LevelMap.W + tx
+			if explored[i] == 0:
+				explored[i] = 1
+				found += 1
+	return found
+
+
+## Only the tiles that are actually part of the keep count, so the percentage
+## does not stall at 30% because most of the map is solid rock.
+static func explored_fraction() -> float:
+	map_ready()
+	var open := 0
+	var seen := 0
+	for ty in LevelMap.H:
+		var row: String = LevelMap.MAP[ty]
+		for tx in LevelMap.W:
+			if row[tx] == "#" or row[tx] == "X":
+				continue
+			open += 1
+			if explored[ty * LevelMap.W + tx] != 0:
+				seen += 1
+	return 0.0 if open == 0 else float(seen) / float(open)
+
+
 # --- what has been seen -----------------------------------------------------
 static var lit_bonfires := {}              # "tx,ty" -> true
 static var seen_areas := {}                # area name -> true
 static var read_runes := {}                # "tx,ty" -> true
 static var slain := 0
+## Set once the last inscription has been read: the run has an end, and the
+## title screen says so afterwards.
+static var finished := false
+static var play_time := 0.0
 ## Counted, not hidden. A souls game that will not tell you how many times it
 ## killed you is being coy about the only number that describes the run.
 static var deaths := 0
+
+
+# --- persistence -------------------------------------------------------------
+## The whole run, in user://save.cfg. Everything above this line is static so it
+## survives a scene reload; this is what makes it survive closing the game.
+##
+## Written at the only two moments that matter in a souls game — resting at a
+## fire, and dying — so a save is always at a checkpoint and never mid-fall.
+## A static var rather than a const so the test suites can point it at their own
+## file — a test run must never eat the player's actual save.
+static var SAVE_PATH := "user://save.cfg"
+const SAVE_VERSION := 1
+
+
+static func has_save() -> bool:
+	return FileAccess.file_exists(SAVE_PATH)
+
+
+static func save_game() -> void:
+	var cfg := ConfigFile.new()
+	cfg.set_value("run", "version", SAVE_VERSION)
+	cfg.set_value("run", "checkpoint", checkpoint)
+	cfg.set_value("run", "has_checkpoint", has_checkpoint)
+	cfg.set_value("run", "souls", souls)
+	cfg.set_value("run", "flask", flask)
+	cfg.set_value("run", "stats", stats)
+	cfg.set_value("run", "slain", slain)
+	cfg.set_value("run", "deaths", deaths)
+	cfg.set_value("run", "finished", finished)
+	cfg.set_value("run", "play_time", play_time)
+	cfg.set_value("drop", "has_drop", has_drop)
+	cfg.set_value("drop", "pos", drop_pos)
+	cfg.set_value("drop", "souls", dropped_souls)
+	cfg.set_value("armoury", "weapons", weapons.keys())
+	cfg.set_value("armoury", "equipped", weapon)
+	cfg.set_value("seen", "bonfires", lit_bonfires.keys())
+	cfg.set_value("seen", "areas", seen_areas.keys())
+	cfg.set_value("seen", "runes", read_runes.keys())
+	# 49152 bytes of fog; base64 keeps the config file a text file
+	map_ready()
+	cfg.set_value("seen", "explored", Marshalls.raw_to_base64(explored))
+	cfg.save(SAVE_PATH)
+
+
+static func load_game() -> bool:
+	var cfg := ConfigFile.new()
+	if cfg.load(SAVE_PATH) != OK:
+		return false
+	if int(cfg.get_value("run", "version", 0)) != SAVE_VERSION:
+		return false                 # a save from another build is not a save
+	reset()
+	has_checkpoint = bool(cfg.get_value("run", "has_checkpoint", false))
+	checkpoint = cfg.get_value("run", "checkpoint", Vector2.ZERO)
+	souls = int(cfg.get_value("run", "souls", 0))
+	flask = int(cfg.get_value("run", "flask", 3))
+	stats = cfg.get_value("run", "stats", [0, 0, 0, 0, 0]).duplicate()
+	slain = int(cfg.get_value("run", "slain", 0))
+	deaths = int(cfg.get_value("run", "deaths", 0))
+	finished = bool(cfg.get_value("run", "finished", false))
+	play_time = float(cfg.get_value("run", "play_time", 0.0))
+	has_drop = bool(cfg.get_value("drop", "has_drop", false))
+	drop_pos = cfg.get_value("drop", "pos", Vector2.ZERO)
+	dropped_souls = int(cfg.get_value("drop", "souls", 0))
+	weapons = _set_of(cfg.get_value("armoury", "weapons", [Weapons.START]))
+	weapon = int(cfg.get_value("armoury", "equipped", 0))
+	lit_bonfires = _set_of(cfg.get_value("seen", "bonfires", []))
+	seen_areas = _set_of(cfg.get_value("seen", "areas", []))
+	read_runes = _set_of(cfg.get_value("seen", "runes", []))
+	var fog := Marshalls.base64_to_raw(String(cfg.get_value("seen", "explored", "")))
+	if fog.size() == LevelMap.W * LevelMap.H:
+		explored = fog
+	else:
+		map_ready()
+	return true
+
+
+static func delete_save() -> void:
+	if has_save():
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(SAVE_PATH))
+
+
+static func _set_of(keys) -> Dictionary:
+	var d := {}
+	for k in keys:
+		d[k] = true
+	return d
 
 
 static func reset() -> void:
@@ -117,6 +265,10 @@ static func reset() -> void:
 	read_runes = {}
 	slain = 0
 	deaths = 0
+	finished = false
+	play_time = 0.0
+	explored = PackedByteArray()
+	map_ready()
 
 
 static func rest_at(pos: Vector2) -> void:
@@ -170,9 +322,37 @@ static func raise_stat(stat: int) -> bool:
 	return true
 
 
+## Everything the stats have cost so far, so a respec can hand it all back.
+static func spent_souls() -> int:
+	var total := 0
+	for i in level() - 1:
+		total += COST_BASE + i * COST_STEP
+	return total
+
+
+## Wipe the build and refund every soul it cost. Free and unlimited on purpose:
+## the complaint that keeps coming up about this genre is that you cannot afford
+## to TRY the weapon you just found, and six weapons that all want different
+## stats are worth nothing if the first ten points lock you out of five of them.
+static func respec() -> int:
+	var back := spent_souls()
+	stats = [0, 0, 0, 0, 0]
+	souls += back
+	return back
+
+
 # --- discovery --------------------------------------------------------------
 static func key(tx: int, ty: int) -> String:
 	return "%d,%d" % [tx, ty]
+
+
+## Which region a tile belongs to, for naming bonfires on the travel list.
+static func region_of(tx: int, ty: int) -> String:
+	for a in LevelMap.AREAS:
+		if tx >= int(a["x"]) and tx < int(a["x"]) + int(a["w"]) \
+				and ty >= int(a["y"]) and ty < int(a["y"]) + int(a["h"]):
+			return a["name"]
+	return "THE KEEP"
 
 
 static func light_bonfire(k: String) -> bool:

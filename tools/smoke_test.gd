@@ -12,6 +12,7 @@ var _main: Node
 var _player: Player
 var _fails: Array[String] = []
 var _checks := 0
+var _closing := 0
 var _step := 0
 var _phase := 0
 var _phase_frame := -1     # incremented at the top of each step -> first step is 0
@@ -47,6 +48,9 @@ var _weapon0 := 0
 
 
 func _initialize() -> void:
+	# never touch the player's own save file
+	Run.SAVE_PATH = "user://test_save.cfg"
+	Run.delete_save()
 	var packed: PackedScene = load("res://scenes/Main.tscn")
 	_main = packed.instantiate()
 	root.add_child(_main)
@@ -928,6 +932,23 @@ func _phase_respawn() -> void:
 
 
 func _finish() -> bool:
+	# Two beats of grace before quitting: Audio.shutdown() stops every voice,
+	# but the audio server only releases a stopped playback on its next mix, and
+	# a stream still held at exit is reported as a leaked resource — which this
+	# runner treats as a failure, correctly.
+	_closing += 1
+	if _closing == 1:
+		Audio.shutdown()
+		return false
+	if _closing < 4:
+		return false
+
+	# Anything the game actually DREW with a glyph the font does not have. This
+	# catches strings assembled at runtime — "EXPLORED 61%" and the like — that
+	# no list of literals in a test could ever cover.
+	_ok("every string drawn during the run was renderable",
+			PixelLabel.missing_glyphs.is_empty(),
+			"missing glyphs: %s" % str(PixelLabel.missing_glyphs.keys()))
 	print("")
 	if _fails.is_empty():
 		print("PASS — %d checks" % _checks)

@@ -201,6 +201,60 @@ func _process(_delta: float) -> bool:
 		528:
 			_grab("19_great_axe")
 		532:
+			# reveal a good part of the keep, so the map has something on it
+			for t in [[9, 46], [40, 46], [62, 55], [70, 70], [100, 76], [140, 70],
+					[170, 88], [210, 92], [250, 100], [280, 108], [320, 124],
+					[350, 118], [340, 90], [330, 60], [300, 26], [200, 26],
+					[120, 26]]:
+				Run.see_tiles(t[0], t[1], 16)
+			_key(KEY_ESCAPE)
+		540:
+			var pm = current_scene.pause_menu
+			pm._menu.index = pm.ITEMS.find("MAP")
+			pm._menu._apply()
+			_key(KEY_ENTER)
+		548:
+			_grab("20_map")
+		552:
+			_key(KEY_ESCAPE)
+			_key(KEY_ESCAPE)
+		558:
+			# back to the title screen, where the settings pages live
+			_key(KEY_ESCAPE)
+		564:
+			var pm = current_scene.pause_menu
+			pm._menu.index = pm.ITEMS.size() - 1        # QUIT TO TITLE
+			_key(KEY_ENTER)
+		590:
+			_scene = current_scene
+			(_find(_scene, "MenuList") as MenuList).index = _scene.items.find("OPTIONS")
+			_key(KEY_ENTER)
+		598:
+			_grab("21_options")
+		602:
+			_key(KEY_ENTER)                 # VIDEO
+		610:
+			_grab("22_video")
+		614:
+			_key(KEY_ESCAPE)
+		618:
+			_key(KEY_DOWN)
+			_key(KEY_ENTER)                 # AUDIO
+		626:
+			_grab("23_audio")
+		630:
+			_key(KEY_ESCAPE)
+		634:
+			_key(KEY_DOWN)                  # AUDIO -> CONTROLS
+			_key(KEY_ENTER)
+		642:
+			_grab("24_keybinds")
+		646:
+			_key(KEY_ENTER)                 # start a rebind, to show the prompt
+		652:
+			_grab("25_rebind")
+		656:
+			_key(KEY_ESCAPE)
 			print("done.")
 			quit(0)
 			return true

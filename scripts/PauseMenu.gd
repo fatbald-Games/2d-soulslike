@@ -11,7 +11,7 @@ extends CanvasLayer
 signal resumed
 signal quit_to_menu
 
-const ITEMS := ["RESUME", "PROGRESS", "CONTROLS", "OPTIONS", "QUIT TO TITLE"]
+const ITEMS := ["RESUME", "MAP", "PROGRESS", "CONTROLS", "OPTIONS", "QUIT TO TITLE"]
 ## Twelve rows is the most that fits between the panel top and the footer band
 ## at this pitch — see PROGRESS_STEP.
 const PROGRESS_ROWS := 13
@@ -21,15 +21,16 @@ const PROGRESS_STEP := 10
 ## starts higher, with its heading raised to match.
 const PROGRESS_PANEL_Y := 44.0
 const PROGRESS_HEAD_Y := 18
-const OPTION_ITEMS := ["WINDOW", "SCREEN SHAKE", "HUD HINTS", "BACK"]
 
-enum Screen { MAIN, PROGRESS, CONTROLS, OPTIONS }
+enum Screen { MAIN, MAP, PROGRESS, CONTROLS, OPTIONS }
 
 var _screen: Screen = Screen.MAIN
 var _menu: MenuList
-var _options: MenuList
+var _options: OptionsMenu
 var _pages: Dictionary = {}
 var _shade: ColorRect
+var _map: MapView
+var _map_where: PixelLabel
 var _progress_rows: Array = []
 var _progress_origin := Vector2.ZERO
 var _progress_w := 0.0
@@ -52,9 +53,11 @@ func _build() -> void:
 	add_child(_shade)
 
 	_pages[Screen.MAIN] = _build_main()
+	_pages[Screen.MAP] = _build_map()
 	_pages[Screen.PROGRESS] = _build_progress()
 	_pages[Screen.CONTROLS] = _build_controls()
 	_pages[Screen.OPTIONS] = _build_options()
+	_options.closed.connect(func() -> void: _show(Screen.MAIN))
 	_show(Screen.MAIN)
 
 
@@ -85,6 +88,49 @@ func _build_main() -> Control:
 	_menu.build(ITEMS, origin, size.x)
 	_menu.activated.connect(_on_activated)
 	return page
+
+
+## The keep at one pixel per tile, which at 384x128 is exactly the width of the
+## screen. Sixteen screens of dungeon with no way to see where you are is the
+## complaint this whole genre keeps getting, and it is a fair one.
+func _build_map() -> Control:
+	var page := _page("MAP", "M  OR  ESC   BACK", 18)
+
+	_map = MapView.new()
+	_map.position = Vector2(0, 46)
+	page.add_child(_map)
+
+	# a hairline above and below, so the map reads as a plate rather than as
+	# the background having quietly changed colour
+	for y in [45, 46 + LevelMap.H]:
+		var rule := ColorRect.new()
+		rule.color = Color(0.36, 0.33, 0.30, 0.5)
+		rule.position = Vector2(0, y)
+		rule.size = Vector2(UiTheme.VIEW.x, 1)
+		page.add_child(rule)
+
+	var key := PixelLabel.make("EMBER  LIT FIRE     GREY  UNLIT     GOLD  WEAPON", 1,
+			UiTheme.BONE_FAINT)
+	key.center_on(UiTheme.VIEW.x * 0.5, 36)
+	page.add_child(key)
+
+	_map_where = PixelLabel.make("", 1, UiTheme.BONE)
+	page.add_child(_map_where)
+	return page
+
+
+func _refresh_map() -> void:
+	var here := Vector2i(-1, -1)
+	var main := get_parent()
+	var area := ""
+	if main != null and main.get("player") != null and is_instance_valid(main.player):
+		here = main.level.to_tile(main.player.global_position + Vector2(0, -8))
+		area = String(main._area)
+	_map.refresh(here)
+	_map_where.text = "%s      EXPLORED  %d%%" % [
+			area if not area.is_empty() else "THE KEEP",
+			int(round(Run.explored_fraction() * 100.0))]
+	_map_where.center_on(UiTheme.VIEW.x * 0.5, 46 + LevelMap.H + 6)
 
 
 ## Everything the run has to show for itself, on one page. The stats say what
@@ -158,31 +204,14 @@ func _build_controls() -> Control:
 
 
 func _build_options() -> Control:
-	var page := _page("OPTIONS", "LEFT RIGHT  CHANGE      ESC  BACK")
-	var vals := _option_values()
-	var box := UiTheme.add_panel(page, OPTION_ITEMS, 2, UiTheme.MENU_STEP, vals, 190.0)
-	var origin: Vector2 = box[0]
-	var size: Vector2 = box[1]
-
-	_options = MenuList.new()
+	# One settings widget, shared with the title screen (see OptionsMenu.gd).
+	var page := Control.new()
+	page.size = UiTheme.VIEW
+	page.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(page)
+	_options = OptionsMenu.new()
 	page.add_child(_options)
-	_options.build(OPTION_ITEMS, origin, size.x, 2, UiTheme.MENU_STEP, vals)
-	_options.activated.connect(_on_option_activated)
-	_options.value_changed.connect(_on_option_changed)
 	return page
-
-
-func _option_values() -> Array:
-	return [Settings.scale_label(),
-			"ON" if Settings.screen_shake else "OFF",
-			"ON" if Settings.hud_hints else "OFF",
-			""]
-
-
-func _refresh_options() -> void:
-	var vals := _option_values()
-	for i in vals.size():
-		_options.set_value(i, vals[i])
 
 
 func _show(s: Screen) -> void:
@@ -237,6 +266,15 @@ func _unhandled_input(event: InputEvent) -> void:
 		if k.physical_keycode == KEY_ESCAPE:
 			open()
 			_consume()
+		elif k.physical_keycode == KEY_M:
+			# straight to the map: the page you want often enough that two
+			# keypresses to reach it is one too many
+			open()
+			_menu.index = ITEMS.find("MAP")
+			_menu._apply()
+			_refresh_map()
+			_show(Screen.MAP)
+			_consume()
 		return
 
 	match _screen:
@@ -246,12 +284,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			else:
 				_input_list(k, _menu)
 		Screen.OPTIONS:
-			if k.physical_keycode == KEY_ESCAPE:
-				_show(Screen.MAIN)
-			else:
-				_input_list(k, _options)
-		Screen.CONTROLS, Screen.PROGRESS:
-			if k.physical_keycode in [KEY_ESCAPE, KEY_ENTER, KEY_KP_ENTER, KEY_SPACE]:
+			_options.handle_key(k)
+		Screen.CONTROLS, Screen.PROGRESS, Screen.MAP:
+			if k.physical_keycode in [KEY_ESCAPE, KEY_ENTER, KEY_KP_ENTER, KEY_SPACE,
+					KEY_M]:
 				_show(Screen.MAIN)
 	_consume()
 
@@ -275,33 +311,16 @@ func _on_activated(idx: int) -> void:
 		0:
 			close()
 		1:
+			_refresh_map()
+			_show(Screen.MAP)
+		2:
 			_refresh_progress()
 			_show(Screen.PROGRESS)
-		2:
-			_show(Screen.CONTROLS)
 		3:
-			_show(Screen.OPTIONS)
+			_show(Screen.CONTROLS)
 		4:
+			_show(Screen.OPTIONS)
+		5:
 			get_tree().paused = false
 			_open = false
 			quit_to_menu.emit()
-
-
-func _on_option_activated(idx: int) -> void:
-	if idx == 3:
-		_show(Screen.MAIN)
-	else:
-		_on_option_changed(idx, 1)
-
-
-func _on_option_changed(idx: int, dir: int) -> void:
-	match idx:
-		0:
-			Settings.cycle_window(dir)
-		1:
-			Settings.screen_shake = not Settings.screen_shake
-			Settings.save()
-		2:
-			Settings.hud_hints = not Settings.hud_hints
-			Settings.save()
-	_refresh_options()

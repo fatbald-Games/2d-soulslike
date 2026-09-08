@@ -12,6 +12,12 @@ const SOUL_PICKUP_RANGE := 20.0
 const PICKUP_RANGE := 22.0           # how close you must stand to take a weapon
 const SHAKE_DECAY := 7.0
 
+## How far the map fills in around him, and how often. A screen is 24 tiles
+## across, so 13 reveals a little less than he can actually see — the map should
+## lag behind the room, not run ahead of it.
+const REVEAL_RADIUS := 13
+const REVEAL_EVERY := 0.20
+
 ## Frame order in assets/sprites/deco.png (see DECO_NAMES in tools/gen_art.py).
 const DECO_FRAMES := ["chain", "pillar", "bones", "roots", "icicles", "banner",
 		"skull_spike", "arch"]
@@ -26,21 +32,21 @@ const DECO_H := 32
 ## still air reads as a diagram, moving air reads as a place.
 const AMBIENCE := {
 	"gate": {"n": 42, "grav": Vector2(7, 16), "vel": 5.0, "life": 5.0,
-			"col": Color(0.74, 0.70, 0.64), "size": 0.16},
+			"col": Color(0.74, 0.70, 0.64), "size": 0.16, "amb": "amb_stone"},
 	"descent": {"n": 38, "grav": Vector2(2, 24), "vel": 6.0, "life": 4.0,
-			"col": Color(0.62, 0.62, 0.72), "size": 0.14},
+			"col": Color(0.62, 0.62, 0.72), "size": 0.14, "amb": "amb_deep"},
 	"ossuary": {"n": 34, "grav": Vector2(3, 9), "vel": 4.0, "life": 6.5,
-			"col": Color(0.80, 0.76, 0.64), "size": 0.15},
+			"col": Color(0.80, 0.76, 0.64), "size": 0.15, "amb": "amb_stone"},
 	"cistern": {"n": 44, "grav": Vector2(0, -18), "vel": 5.0, "life": 4.5,
-			"col": Color(0.55, 0.86, 0.92), "size": 0.17},
+			"col": Color(0.55, 0.86, 0.92), "size": 0.17, "amb": "amb_water"},
 	"rootworks": {"n": 48, "grav": Vector2(-3, -5), "vel": 6.0, "life": 7.0,
-			"col": Color(0.55, 0.95, 0.58), "size": 0.18},
+			"col": Color(0.55, 0.95, 0.58), "size": 0.18, "amb": "amb_deep"},
 	"forge": {"n": 58, "grav": Vector2(4, -34), "vel": 14.0, "life": 3.2,
-			"col": Color(1.0, 0.60, 0.24), "size": 0.20},
+			"col": Color(1.0, 0.60, 0.24), "size": 0.20, "amb": "amb_forge"},
 	"vault": {"n": 54, "grav": Vector2(6, 20), "vel": 6.0, "life": 5.0,
-			"col": Color(0.86, 0.93, 1.0), "size": 0.18},
+			"col": Color(0.86, 0.93, 1.0), "size": 0.18, "amb": "amb_wind"},
 	"ramparts": {"n": 52, "grav": Vector2(-30, 12), "vel": 10.0, "life": 4.0,
-			"col": Color(0.72, 0.74, 0.84), "size": 0.15},
+			"col": Color(0.72, 0.74, 0.84), "size": 0.15, "amb": "amb_wind"},
 }
 
 var level: Level
@@ -61,6 +67,7 @@ var _sparks: CPUParticles2D
 var _motes: CPUParticles2D           # the region's airborne dust, ash or embers
 var _dust: CPUParticles2D            # kicked up where he lands
 var _t := 0.0
+var _reveal_t := 0.0
 var _area := ""
 var hud                     # HUD.gd instance (untyped: it has no class_name)
 var pause_menu              # PauseMenu.gd instance
@@ -69,6 +76,8 @@ var player: Player
 
 func _ready() -> void:
 	_setup_input()
+	Audio.boot(get_tree())
+	Settings.apply_all()
 	level = Level.new()
 	add_child(level)
 	_build_lighting_root()
@@ -82,40 +91,14 @@ func _ready() -> void:
 	_wire_hud()
 	_build_camera()
 	_build_ambience()
+	Audio.music("music_keep")
 	_spawn_soul_orb()
 
 
 # ------------------------------------------------------------------ input ----
 func _setup_input() -> void:
-	_action("left", [KEY_A, KEY_LEFT])
-	_action("right", [KEY_D, KEY_RIGHT])
-	# up/down drive the ladders, so jump keeps SPACE to itself — sharing W with
-	# "jump" would make every climb start with a hop
-	_action("up", [KEY_W, KEY_UP])
-	_action("down", [KEY_S, KEY_DOWN])
-	_action("jump", [KEY_SPACE])
-	_action("attack", [KEY_J], MOUSE_BUTTON_LEFT)
-	_action("dodge", [KEY_K, KEY_SHIFT])
-	_action("heal", [KEY_Q])
-	_action("interact", [KEY_E])
-	# the shield is the only weapon that can guard, so BLOCK is always bound and
-	# simply does nothing while he is carrying something else
-	_action("block", [KEY_L], MOUSE_BUTTON_RIGHT)
-	_action("swap", [KEY_TAB, KEY_R])
-
-
-func _action(action_name: String, keys: Array, mouse: int = -1) -> void:
-	if InputMap.has_action(action_name):
-		InputMap.erase_action(action_name)
-	InputMap.add_action(action_name)
-	for k in keys:
-		var ev := InputEventKey.new()
-		ev.physical_keycode = k
-		InputMap.action_add_event(action_name, ev)
-	if mouse >= 0:
-		var mb := InputEventMouseButton.new()
-		mb.button_index = mouse
-		InputMap.action_add_event(action_name, mb)
+	Settings.load_once()
+	Keys.apply()
 
 
 # ------------------------------------------------------------------ level ----
@@ -225,6 +208,7 @@ func _light_bonfire(b: Dictionary) -> void:
 	l.energy = 5.0                       # a flare, settling back to normal
 	create_tween().tween_property(l, "energy", 1.55, 0.9)
 	_add_shake(2.0)
+	Audio.play("bonfire_light", 0.02)
 	hud.show_area("BONFIRE LIT")
 
 
@@ -466,7 +450,24 @@ func _build_bonfire_menu() -> CanvasLayer:
 	b.rested.connect(_on_rested)
 	b.levelled.connect(_on_levelled)
 	b.equipped.connect(_on_equipped)
+	b.travelled.connect(_on_travelled)
 	return b
+
+
+## Warp to another lit fire. It also becomes the fire you respawn at, because
+## arriving somewhere and then dying back to where you left would be worse than
+## not having travelled at all.
+func _on_travelled(to: Vector2) -> void:
+	player.global_position = to
+	player.velocity = Vector2.ZERO
+	Run.rest_at(to)
+	_respawn_hollows()
+	player.rest()
+	_area = ""                       # so the new region announces itself
+	if _camera != null:
+		_camera.reset_smoothing()
+	Audio.play("rest", 0.02)
+	hud.show_area("TRAVELLED")
 
 
 ## Swapping at the fire goes through the same path as swapping in the field, so
@@ -491,6 +492,7 @@ func _build_pause_menu() -> CanvasLayer:
 
 
 func _on_quit_to_menu() -> void:
+	Run.save_game()
 	get_tree().change_scene_to_file("res://scenes/MainMenu.tscn")
 
 
@@ -517,6 +519,7 @@ func _wire_hud() -> void:
 func _on_player_died() -> void:
 	Run.deaths += 1
 	Run.drop(player.global_position, player.souls)
+	Run.save_game()                  # so the pile you dropped is still there
 	Run.flask = Player.FLASK_MAX          # the flask is refilled by dying, too
 	_add_shake(3.0)
 	hud.show_died()
@@ -604,6 +607,7 @@ func _set_ambience(theme: String) -> void:
 	if _motes == null or not AMBIENCE.has(theme):
 		return
 	var a: Dictionary = AMBIENCE[theme]
+	Audio.ambience(String(a["amb"]))
 	_motes.amount = int(a["n"])
 	_motes.lifetime = float(a["life"])
 	_motes.gravity = a["grav"]
@@ -698,6 +702,7 @@ func _build_camera() -> void:
 
 func _process(delta: float) -> void:
 	_t += delta
+	Run.play_time += delta
 	for e in _lights:
 		var n: PointLight2D = e["node"]
 		var a: float = e["amp"]
@@ -705,6 +710,7 @@ func _process(delta: float) -> void:
 				+ a * 0.5 * sin(_t * 17.0 + e["phase"]))
 	_tick_shake(delta)
 	if player != null and is_instance_valid(player):
+		_track_map(delta)
 		_track_area()
 		_track_runes()
 		# one prompt line, and several things that might want it: the fire wins,
@@ -777,11 +783,14 @@ func _take_weapon(p: Dictionary) -> void:
 	(p["node"] as Sprite2D).queue_free()
 	_pickups.erase(p)
 	hud.show_prompt("")
+	Audio.play("weapon_found", 0.0)
 	hud.show_area("FOUND  %s" % Weapons.name_of(p["idx"]))
 	_add_shake(1.5)
 
 
 func _on_rested() -> void:
+	Audio.play("rest", 0.02)
+	Run.save_game()                  # a fire is the only place a save belongs
 	player.rest()
 	_respawn_hollows()
 	hud.show_area("RESTED")
@@ -805,9 +814,21 @@ func _track_soul_orb() -> void:
 		return
 	if player.global_position.distance_to(_soul_orb.position) > SOUL_PICKUP_RANGE:
 		return
+	Audio.play("soul", 0.05)
 	player.add_souls(Run.collect())
 	_soul_orb.queue_free()
 	_soul_orb = null
+
+
+## Fill the map in behind him. Every fifth of a second is plenty: he covers at
+## most 20px in that time and the reveal radius is 208.
+func _track_map(delta: float) -> void:
+	_reveal_t -= delta
+	if _reveal_t > 0.0:
+		return
+	_reveal_t = REVEAL_EVERY
+	var t := level.to_tile(player.global_position + Vector2(0, -8))
+	Run.see_tiles(t.x, t.y, REVEAL_RADIUS)
 
 
 ## The map is far too big to hold in your head, so crossing into a new region
@@ -832,7 +853,7 @@ func _track_runes() -> void:
 			nearest = r["text"]
 		var s: Sprite2D = r["node"]
 		var close := d < RUNE_READ_RANGE
-		if close:
-			Run.read_rune(r["key"])
+		if close and Run.read_rune(r["key"]):
+			Audio.play("rune", 0.02)
 		s.texture = SpriteUtil.frame_of(_tex("rune.png"), 1 if close else 0, 7, 7)
 	hud.show_inscription(nearest)

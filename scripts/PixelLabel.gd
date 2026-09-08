@@ -11,13 +11,20 @@ extends Control
 
 ## Must stay in sync with FONT_CHARS in tools/gen_art.py — a glyph is found
 ## purely by its index in this string.
-const CHARS := "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,:!?'-()/ +"
+const CHARS := "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,:!?'-()/ +%"
 const CELL := 6          # glyph cell pitch in the sheet
 const GLYPH_W := 5
 const GLYPH_H := 7
 const FONT_PATH := "res://assets/ui/font_5x7.png"
 
 static var _font: Texture2D
+
+## Every character the font had no glyph for, as it came up. A missing glyph
+## fails SILENTLY — it draws a space — which is how "S + SPACE" once shipped
+## reading "S   SPACE" and how EXPLORED 61% lost its sign. The test suites walk
+## the whole game and then assert this is still empty, which covers strings
+## built at runtime that no static list of literals could catch.
+static var missing_glyphs := {}
 
 var text: String = "":
 	set(v):
@@ -93,8 +100,10 @@ func _blit(tex: Texture2D, off: Vector2, col: Color) -> void:
 	var x := 0.0
 	var step := float((GLYPH_W + tracking) * px_scale)
 	for i in text.length():
-		var idx := CHARS.find(text[i].to_upper())
+		var c := text[i].to_upper()
+		var idx := CHARS.find(c)
 		if idx < 0:
+			missing_glyphs[c] = true
 			idx = CHARS.find(" ")
 		draw_texture_rect_region(tex,
 				Rect2(off.x + x, off.y, GLYPH_W * px_scale, GLYPH_H * px_scale),

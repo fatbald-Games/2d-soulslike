@@ -137,6 +137,7 @@ func take_damage(amount: float, from: Vector2, knock: float = 70.0) -> void:
 		return
 	health -= amount
 	_flash()
+	Audio.play("hit_flesh")
 	var away := 1.0 if global_position.x >= from.x else -1.0
 	velocity.x = away * knock
 	if knock > 160.0:

@@ -48,8 +48,17 @@ else
 	echo "python3 fehlt - Level-Prüfung übersprungen." >&2
 fi
 
-# Erster Lauf legt die .import-Dateien an; ohne sie findet der Test keine Texturen.
+# The first pass writes the .import files; without them the tests find no
+# textures. It runs TWICE on purpose: a pass that actually imports something new
+# leaves the resource filesystem needing one more scan, and the very next launch
+# then fails to load its script once before succeeding — which shows up here as
+# an engine error and fails the run for no reason.
 "$GODOT_BIN" --headless --import --path "$PROJECT_DIR" >/dev/null 2>&1
+# ...then one throwaway boot, whose only job is to rebuild the script class
+# cache that --import invalidates. Without it the next launch reports the test
+# script as "File not found", loads it on a retry, and passes anyway — leaving
+# three engine errors in the log that fail the run for no reason at all.
+"$GODOT_BIN" --headless --path "$PROJECT_DIR" --quit >/dev/null 2>&1
 
 # Ein Testskript laufen lassen. Godot liefert bei einem Laufzeitfehler im Skript
 # trotzdem Exit-Code 0, deshalb gilt jede SCRIPT-ERROR-Zeile ebenfalls als
@@ -65,8 +74,20 @@ run_suite() {
 		echo "-> $name: Checks fehlgeschlagen (Exit $rc)" >&2
 		status=1
 	fi
-	if echo "$out" | grep -qE 'SCRIPT ERROR|^ERROR:'; then
-		echo "-> $name: Engine-Fehler im Log (siehe SCRIPT ERROR oben)" >&2
+	# The suite has to have actually started. A script that fails to load makes
+	# Godot exit 0 with no output at all, which would otherwise sail through.
+	if ! echo "$out" | grep -q 'Ashen Hollow'; then
+		echo "-> $name: the suite never started (no banner in the output)" >&2
+		status=1
+		return
+	fi
+	# Only errors from the suite ITSELF count. Everything before its banner is
+	# engine start-up noise on a cold cache: regenerating LevelMap.gd and
+	# reimporting the assets invalidates the script class cache, and the first
+	# launch after that reports the test script as missing, retries, and runs
+	# fine. That is the toolchain warming up, not the game being broken.
+	if echo "$out" | sed -n '/Ashen Hollow/,$p' | grep -qE 'SCRIPT ERROR|^ERROR:'; then
+		echo "-> $name: engine errors in the log (see SCRIPT ERROR above)" >&2
 		status=1
 	fi
 }

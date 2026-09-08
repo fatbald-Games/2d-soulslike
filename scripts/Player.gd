@@ -25,6 +25,16 @@ const GRAVITY := 900.0
 # the knight under ledges he used to reach.
 const JUMP_VELOCITY := -270.0
 
+# --- forgiving platforming ---------------------------------------------------
+# The single most-repeated complaint about 2D souls-likes is that the jumping
+# feels stiff and unfair; Blasphemous shipped exactly these three in a patch
+# driven by its community. None of them make the knight jump FURTHER while the
+# button is held, so the reachability proof in tools/gen_level.py still holds:
+# they only stop the game from eating an input that was morally correct.
+const COYOTE_TIME := 0.10        # you may still jump this long after a ledge
+const JUMP_BUFFER := 0.12        # a jump pressed this early lands on touchdown
+const JUMP_CUT := 0.45           # releasing early keeps this much of the rise
+
 const CLIMB_SPEED := 52.0
 const LADDER_HOP := -180.0         # pushing off a ladder
 const DROP_THRU_TIME := 0.28       # how long beams are ignored after down+jump
@@ -96,6 +106,9 @@ var _drank := false
 var _drop_thru := 0.0              # >0 while falling through a one-way beam
 var _shot_done := false           # one arrow per pull, not one per frame
 var _squash: Tween                # the impact squash on landing
+var _coyote := 0.0                # grace left after walking off an edge
+var _jump_buffer := 0.0           # a jump pressed before he had landed
+var _cut_armed := false           # this rise can still be cut short
 var _level: Node = null            # asked whether a ladder is under him
 
 @onready var sprite: AnimatedSprite2D = $Sprite
@@ -193,6 +206,7 @@ func _physics_process(delta: float) -> void:
 	_invuln = maxf(0.0, _invuln - delta)
 	_tick_stamina(delta)
 	_tick_drop_thru(delta)
+	_tick_jump_grace(delta)
 
 	# climbing hangs off the wall: no gravity while he has hold of a rung
 	if not is_on_floor() and state != State.CLIMB:
@@ -232,6 +246,7 @@ func _physics_process(delta: float) -> void:
 ## floor rather than lifting it off.
 func _land(fall: float) -> void:
 	var force := clampf((fall - LAND_MIN_FALL) / 300.0, 0.0, 1.0)
+	Audio.play("land", 0.08, -6.0 + 6.0 * force)
 	landed.emit(global_position, force)
 	if _squash != null and _squash.is_valid():
 		_squash.kill()
@@ -239,6 +254,32 @@ func _land(fall: float) -> void:
 	_squash = create_tween()
 	_squash.tween_property(sprite, "scale", Vector2.ONE, 0.18) \
 			.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+
+## Coyote time, the jump buffer and the variable jump height, all in one place.
+##
+## The cut is what makes the jump feel like YOURS: hold the button for the full
+## arc the level is built around, tap it for a hop. It only ever shortens a
+## jump, so nothing the generator proved reachable stops being reachable.
+func _tick_jump_grace(delta: float) -> void:
+	if is_on_floor():
+		_coyote = COYOTE_TIME
+	else:
+		_coyote = maxf(0.0, _coyote - delta)
+	_jump_buffer = maxf(0.0, _jump_buffer - delta)
+	if Input.is_action_just_pressed("jump"):
+		_jump_buffer = JUMP_BUFFER
+	if _cut_armed and velocity.y < 0.0 and not Input.is_action_pressed("jump"):
+		velocity.y *= JUMP_CUT
+		_cut_armed = false
+
+
+func _jump() -> void:
+	Audio.play("jump", 0.09)
+	velocity.y = JUMP_VELOCITY
+	_coyote = 0.0
+	_jump_buffer = 0.0
+	_cut_armed = true
 
 
 ## One-way beams are their own collision layer, so dropping through one is just
@@ -287,12 +328,14 @@ func _ground_state(delta: float) -> void:
 		_decelerate(delta, 700.0)
 		_set_state_anim(State.IDLE)
 
-	if Input.is_action_just_pressed("jump") and is_on_floor():
-		# down + jump drops through a beam instead of hopping off it
-		if Input.is_action_pressed("down"):
+	if _jump_buffer > 0.0 and _coyote > 0.0:
+		# down + jump drops through a beam instead of hopping off it, and that
+		# one still wants both feet actually on the beam
+		if Input.is_action_pressed("down") and is_on_floor():
+			_jump_buffer = 0.0
 			_begin_drop_thru()
 		else:
-			velocity.y = JUMP_VELOCITY
+			_jump()
 
 
 func _begin_drop_thru() -> void:
@@ -351,6 +394,8 @@ func _climb_state(_delta: float) -> void:
 		return
 	if Input.is_action_just_pressed("jump"):
 		velocity.y = LADDER_HOP
+		_cut_armed = true
+		_jump_buffer = 0.0
 		_enter(State.IDLE)
 		return
 
@@ -391,16 +436,19 @@ func _enter(next: State) -> void:
 			sprite.play("run")
 		State.ATTACK:
 			sprite.play("attack")
+			Audio.play(String(weapon()["sfx"]))
 			# the swing sheet is authored at ATTACK_TIME_BASE, so a faster swing
 			# has to play back proportionally faster or the blow lands after the
 			# animation has already finished
 			sprite.speed_scale = ATTACK_TIME_BASE / attack_time
 		State.ROLL:
 			sprite.play("roll")
+			Audio.play("roll", 0.10)
 		State.CLIMB:
 			sprite.play("roll")   # the tucked frames read as a scramble
 		State.DRINK:
 			sprite.play("idle")
+			Audio.play("drink", 0.04)
 		State.BLOCK:
 			sprite.play("block")
 		State.HURT:
@@ -468,9 +516,11 @@ func take_damage(amount: float, from: Vector2) -> void:
 	velocity.x = away * 110.0
 	velocity.y = -90.0
 	if health <= 0.0:
+		Audio.play("death", 0.0)
 		_enter(State.DEAD)
 		died.emit()
 	else:
+		Audio.play("hurt")
 		_enter(State.HURT)
 
 
@@ -490,11 +540,13 @@ func _absorb(amount: float, from: Vector2) -> float:
 		stamina = 0.0
 		stamina_changed.emit(stamina, stamina_max)
 		guarded.emit(global_position, true)
+		Audio.play("guard_break", 0.03)
 		return amount                       # guard break: the whole blow lands
 	stamina -= cost
 	_regen_block = STAMINA_REGEN_DELAY
 	stamina_changed.emit(stamina, stamina_max)
 	guarded.emit(global_position, false)
+	Audio.play("hit_block")
 	var through := amount * (1.0 - soak)
 	if through <= 0.0:
 		var away := 1.0 if global_position.x >= from.x else -1.0
