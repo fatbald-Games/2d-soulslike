@@ -1,3 +1,4 @@
+class_name MainMenu
 extends Node2D
 ## The title screen: a crypt lit by two guttering torches, a skull rising out of
 ## the bone heap, and a panel with the way in.
@@ -9,16 +10,38 @@ extends Node2D
 ## Three screens share one input handler and one panel style: MAIN, CONTROLS and
 ## OPTIONS. Only one is visible at a time.
 
-enum Screen { MAIN, CONTROLS, OPTIONS }
+enum Screen { MAIN, CONTROLS, OPTIONS, CONFIRM, CREDITS }
 
-const ITEMS := ["NEW GAME", "CONTROLS", "OPTIONS", "QUIT"]
-const OPTION_ITEMS := ["WINDOW", "SCREEN SHAKE", "HUD HINTS", "BACK"]
+## CONTINUE only appears when there is something to continue, so a first launch
+## is not asking the player to choose between two things one of which does
+## nothing.
+const BASE_ITEMS := ["NEW GAME", "CONTROLS", "OPTIONS", "CREDITS", "QUIT"]
+
+## Deliberately about the project rather than about people: everything here is
+## the output of a generator in this repository, and saying so is the credit.
+const CREDIT_LINES := [
+	"EVERY PIXEL AND EVERY SOUND IN THIS GAME",
+	"WAS GENERATED FROM CODE.",
+	"",
+	"ART        TOOLS/GEN-ART.PY",
+	"LEVEL      TOOLS/GEN-LEVEL.PY",
+	"SOUND      TOOLS/GEN-AUDIO.PY",
+	"",
+	"THE LEVEL IS PROVED WALKABLE BEFORE IT SHIPS.",
+	"",
+	"ENGINE     GODOT 4, MIT LICENSED",
+	"GODOTENGINE.ORG",
+]
+const CONFIRM_ITEMS := ["NO. GO BACK", "YES. START OVER"]
+
+var items: Array = []
 const TORCH_XS := [34.0, 350.0]
 const TORCH_Y := 62.0
 
 var _screen: Screen = Screen.MAIN
 var _menu: MenuList
-var _options: MenuList
+var _confirm: MenuList
+var _options: OptionsMenu
 var _pages: Dictionary = {}
 var _lights: Array = []
 var _t := 0.0
@@ -26,12 +49,19 @@ var _leaving := false
 
 
 func _ready() -> void:
+	items = (["CONTINUE"] if Run.has_save() else []) + BASE_ITEMS
 	Settings.load_once()
-	Settings.apply_window()
+	Audio.boot(get_tree())
+	Settings.apply_all()
+	Audio.music("music_title")
+	Audio.ambience("amb_wind")
 	_build_scene()
 	_pages[Screen.MAIN] = _build_main_page()
+	_pages[Screen.CONFIRM] = _build_confirm_page()
+	_pages[Screen.CREDITS] = _build_credits_page()
 	_pages[Screen.CONTROLS] = _build_controls_page()
 	_pages[Screen.OPTIONS] = _build_options_page()
+	_options.closed.connect(func() -> void: _show(Screen.MAIN))
 	_show(Screen.MAIN)
 
 
@@ -116,24 +146,7 @@ func _page(heading: String, scale_px: int, hint: String) -> CanvasLayer:
 			UiTheme.TITLE_Y + (0 if scale_px >= 4 else 6))
 	layer.add_child(title)
 
-	# the bone heap runs right along the bottom, so the hint needs its own dark
-	# band or it disappears into the bones
-	var footer := ColorRect.new()
-	footer.color = Color(0.02, 0.018, 0.03, 0.82)
-	footer.position = Vector2(0, UiTheme.VIEW.y - 17)
-	footer.size = Vector2(UiTheme.VIEW.x, 17)
-	footer.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	layer.add_child(footer)
-
-	var rule := ColorRect.new()
-	rule.color = Color(0.36, 0.33, 0.30, 0.55)
-	rule.position = Vector2(0, UiTheme.VIEW.y - 17)
-	rule.size = Vector2(UiTheme.VIEW.x, 1)
-	layer.add_child(rule)
-
-	var tip := PixelLabel.make(hint, 1, UiTheme.BONE_FAINT)
-	tip.center_on(UiTheme.VIEW.x * 0.5, UiTheme.VIEW.y - 12)
-	layer.add_child(tip)
+	UiTheme.add_footer(layer, hint)
 	return layer
 
 
@@ -144,19 +157,44 @@ func _build_main_page() -> CanvasLayer:
 	sub.center_on(UiTheme.VIEW.x * 0.5, UiTheme.SUB_Y)
 	layer.add_child(sub)
 
-	var box := UiTheme.add_panel(layer, ITEMS)
+	var box := UiTheme.add_panel(layer, items)
 	var origin: Vector2 = box[0]
 	var size: Vector2 = box[1]
 
 	_menu = MenuList.new()
 	layer.add_child(_menu)
-	_menu.build(ITEMS, origin, size.x)
+	_menu.build(items, origin, size.x)
 	_menu.activated.connect(_on_main_activated)
 	return layer
 
 
+## Starting over throws away a run that may be hours old, so it asks first.
+func _build_confirm_page() -> CanvasLayer:
+	var layer := _page("START OVER?", 3, "UP DOWN  SELECT      ENTER  CONFIRM")
+	var warn := PixelLabel.make(
+			"THIS ERASES THE RUN YOU HAVE. THE ASH DOES NOT REMEMBER TWICE.",
+			1, UiTheme.BONE_FAINT)
+	warn.center_on(UiTheme.VIEW.x * 0.5, 54)
+	layer.add_child(warn)
+
+	var box := UiTheme.add_panel(layer, CONFIRM_ITEMS, 2, UiTheme.MENU_STEP, [], 200.0)
+	_confirm = MenuList.new()
+	layer.add_child(_confirm)
+	_confirm.build(CONFIRM_ITEMS, box[0], (box[1] as Vector2).x)
+	_confirm.activated.connect(_on_confirm_activated)
+	return layer
+
+
+func _on_confirm_activated(idx: int) -> void:
+	if idx == 1:
+		_start_game(true)
+	else:
+		_show(Screen.MAIN)
+
+
 func _build_controls_page() -> CanvasLayer:
-	var layer := _page("CONTROLS", 3, "ESC  BACK")
+	var layer := _page("CONTROLS", 3,
+			"THE ROLL IS INVULNERABLE IN ITS MIDDLE - TIME IT      ESC  BACK")
 
 	# size the panel to the widest name + key pair, so the two columns line up
 	var names: Array = []
@@ -164,45 +202,33 @@ func _build_controls_page() -> CanvasLayer:
 	for r in UiTheme.CONTROL_ROWS:
 		names.append(r[0])
 		keys.append(r[1])
-	var box := UiTheme.add_panel(layer, names, 1, 12, keys, 190.0)
-	var origin: Vector2 = box[0]
-	var size: Vector2 = box[1]
-	UiTheme.add_rows(layer, UiTheme.CONTROL_ROWS, origin, size.x)
+	var box := UiTheme.add_panel(layer, names, 1, UiTheme.ROW_STEP, keys, 190.0)
+	UiTheme.add_rows(layer, UiTheme.CONTROL_ROWS, box[0], (box[1] as Vector2).x)
+	return layer
 
-	var tip := PixelLabel.make("THE ROLL IS INVULNERABLE IN ITS MIDDLE - TIME IT", 1,
-			UiTheme.BONE_FAINT)
-	tip.center_on(UiTheme.VIEW.x * 0.5, origin.y + size.y + 8)
-	layer.add_child(tip)
+
+func _build_credits_page() -> CanvasLayer:
+	var layer := _page("CREDITS", 3, "ESC  BACK")
+	var y := 62
+	for line in CREDIT_LINES:
+		if not (line as String).is_empty():
+			var l := PixelLabel.make(line, 1,
+					UiTheme.BONE if line.begins_with("EVERY") or line.begins_with("WAS")
+							else UiTheme.BONE_DIM)
+			l.center_on(UiTheme.VIEW.x * 0.5, y)
+			layer.add_child(l)
+		y += 10
 	return layer
 
 
 func _build_options_page() -> CanvasLayer:
-	var layer := _page("OPTIONS", 3, "LEFT RIGHT  CHANGE      ESC  BACK")
-
-	var vals := _option_values()
-	var box := UiTheme.add_panel(layer, OPTION_ITEMS, 2, UiTheme.MENU_STEP, vals, 190.0)
-	var origin: Vector2 = box[0]
-	var size: Vector2 = box[1]
-
-	_options = MenuList.new()
+	# The whole settings screen is one widget shared with the pause menu, so the
+	# title screen and the in-game screen cannot drift apart.
+	var layer := CanvasLayer.new()
+	add_child(layer)
+	_options = OptionsMenu.new()
 	layer.add_child(_options)
-	_options.build(OPTION_ITEMS, origin, size.x, 2, UiTheme.MENU_STEP, vals)
-	_options.activated.connect(_on_option_activated)
-	_options.value_changed.connect(_on_option_changed)
 	return layer
-
-
-func _option_values() -> Array:
-	return [Settings.scale_label(),
-			"ON" if Settings.screen_shake else "OFF",
-			"ON" if Settings.hud_hints else "OFF",
-			""]
-
-
-func _refresh_options() -> void:
-	var vals := _option_values()
-	for i in vals.size():
-		_options.set_value(i, vals[i])
 
 
 func _show(s: Screen) -> void:
@@ -224,13 +250,15 @@ func _unhandled_input(event: InputEvent) -> void:
 		Screen.MAIN:
 			_input_list(k, _menu)
 		Screen.OPTIONS:
+			_options.handle_key(k)
+		Screen.CONTROLS, Screen.CREDITS:
+			if k.physical_keycode in [KEY_ESCAPE, KEY_ENTER, KEY_KP_ENTER, KEY_SPACE]:
+				_show(Screen.MAIN)
+		Screen.CONFIRM:
 			if k.physical_keycode == KEY_ESCAPE:
 				_show(Screen.MAIN)
 			else:
-				_input_list(k, _options)
-		Screen.CONTROLS:
-			if k.physical_keycode in [KEY_ESCAPE, KEY_ENTER, KEY_KP_ENTER, KEY_SPACE]:
-				_show(Screen.MAIN)
+				_input_list(k, _confirm)
 
 
 func _input_list(k: InputEventKey, list: MenuList) -> void:
@@ -248,40 +276,34 @@ func _input_list(k: InputEventKey, list: MenuList) -> void:
 
 
 func _on_main_activated(idx: int) -> void:
-	match idx:
-		0:
-			_start_game()
-		1:
+	match String(items[idx]):
+		"CONTINUE":
+			_start_game(false)
+		"NEW GAME":
+			if Run.has_save():
+				_confirm.index = 0
+				_confirm._apply()
+				_show(Screen.CONFIRM)
+			else:
+				_start_game(true)
+		"CONTROLS":
 			_show(Screen.CONTROLS)
-		2:
+		"OPTIONS":
 			_show(Screen.OPTIONS)
-		3:
+		"CREDITS":
+			_show(Screen.CREDITS)
+		"QUIT":
 			get_tree().quit()
 
 
-func _on_option_activated(idx: int) -> void:
-	if idx == 3:
-		_show(Screen.MAIN)
-	else:
-		_on_option_changed(idx, 1)      # ENTER toggles, same as pushing right
-
-
-func _on_option_changed(idx: int, dir: int) -> void:
-	match idx:
-		0:
-			Settings.cycle_window(dir)
-		1:
-			Settings.screen_shake = not Settings.screen_shake
-			Settings.save()
-		2:
-			Settings.hud_hints = not Settings.hud_hints
-			Settings.save()
-	_refresh_options()
-
-
-func _start_game() -> void:
+func _start_game(fresh: bool) -> void:
 	_leaving = true
-	Run.reset()          # otherwise the previous run's bonfire and souls carry over
+	if fresh:
+		Run.reset()      # otherwise the previous run's bonfire and souls carry over
+		Run.delete_save()
+	elif not Run.load_game():
+		Run.reset()      # a save we cannot read is not a save
+	Audio.stop_music()
 	get_tree().change_scene_to_file("res://scenes/Main.tscn")
 
 

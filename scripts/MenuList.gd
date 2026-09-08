@@ -90,6 +90,7 @@ func move(delta: int) -> void:
 	else:
 		index = clampi(index + delta, 0, n - 1)
 	_apply()
+	Audio.play("menu_move", 0.03)
 	selection_changed.emit(index)
 
 
@@ -100,6 +101,7 @@ func nudge(dir: int) -> void:
 
 func activate() -> void:
 	if not _labels.is_empty():
+		Audio.play("menu_confirm", 0.02)
 		activated.emit(index)
 
 

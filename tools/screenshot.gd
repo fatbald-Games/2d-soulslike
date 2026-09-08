@@ -125,6 +125,136 @@ func _process(_delta: float) -> bool:
 		370:
 			_grab("09_bonfire")
 		374:
+			# a few levels bought, so the bars show their growth
+			Run.souls = 4000
+			Run.stats[Run.VIGOR] = 4
+			Run.stats[Run.ENDURANCE] = 3
+			Run.stats[Run.AGILITY] = 2
+			current_scene.player.apply_stats(true)
+			current_scene.hud.refresh_stats()
+			current_scene.hud.set_souls(Run.souls)
+			Run.seen_areas["THE ASHEN GATE"] = true
+			Run.seen_areas["THE OSSUARY"] = true
+			Run.seen_areas["THE FLOODED CISTERN"] = true
+			Run.read_runes["1"] = true
+			Run.read_runes["2"] = true
+			Run.slain = 17
+		378:
+			# hold the ACTION across a frame: pressing and releasing a raw key in
+			# the same frame can slip past is_action_just_pressed entirely
+			Input.action_press("interact")
+		381:
+			Input.action_release("interact")
+		386:
+			_key(KEY_DOWN)
+		390:
+			_key(KEY_ENTER)                # LEVEL UP
+		398:
+			_grab("14_levelup")
+		402:
+			_key(KEY_ESCAPE)               # back to the bonfire's own menu
+		406:
+			# three weapons found, so the armoury shows both halves of it:
+			# what is in hand, and what is still out there
+			Run.weapons["axe"] = true
+			Run.weapons["spear"] = true
+			Run.weapons["bow"] = true
+			current_scene.bonfire_menu._refresh_armoury()
+			_key(KEY_DOWN)                 # LEVEL UP -> ARMOURY
+		410:
+			_key(KEY_ENTER)
+		418:
+			_grab("16_armoury")
+		422:
+			_key(KEY_ESCAPE)
+		426:
+			_key(KEY_ESCAPE)
+		432:
+			_key(KEY_ESCAPE)               # pause
+		438:
+			_key(KEY_DOWN)
+		442:
+			_key(KEY_ENTER)                # PROGRESS
+		450:
+			_grab("15_progress")
+		454:
+			_key(KEY_ESCAPE)
+		458:
+			_key(KEY_ESCAPE)
+		462:
+			# the great axe still lying in the ossuary, waiting to be taken
+			_warp(94, 76)
+		486:
+			_grab("17_weapon_pickup")
+		490:
+			# and the same knight with the shield up, guarding
+			Run.weapons["shield"] = true
+			current_scene.player.equip(Weapons.SHIELD)
+			_warp(112, 76)
+		500:
+			Input.action_press("block")
+		512:
+			_grab("18_guard")
+		516:
+			Input.action_release("block")
+			current_scene.player.equip(Weapons.AXE)
+		528:
+			_grab("19_great_axe")
+		532:
+			# reveal a good part of the keep, so the map has something on it
+			for t in [[9, 46], [40, 46], [62, 55], [70, 70], [100, 76], [140, 70],
+					[170, 88], [210, 92], [250, 100], [280, 108], [320, 124],
+					[350, 118], [340, 90], [330, 60], [300, 26], [200, 26],
+					[120, 26]]:
+				Run.see_tiles(t[0], t[1], 16)
+			_key(KEY_ESCAPE)
+		540:
+			var pm = current_scene.pause_menu
+			pm._menu.index = pm.ITEMS.find("MAP")
+			pm._menu._apply()
+			_key(KEY_ENTER)
+		548:
+			_grab("20_map")
+		552:
+			_key(KEY_ESCAPE)
+			_key(KEY_ESCAPE)
+		558:
+			# back to the title screen, where the settings pages live
+			_key(KEY_ESCAPE)
+		564:
+			var pm = current_scene.pause_menu
+			pm._menu.index = pm.ITEMS.size() - 1        # QUIT TO TITLE
+			_key(KEY_ENTER)
+		590:
+			_scene = current_scene
+			(_find(_scene, "MenuList") as MenuList).index = _scene.items.find("OPTIONS")
+			_key(KEY_ENTER)
+		598:
+			_grab("21_options")
+		602:
+			_key(KEY_ENTER)                 # VIDEO
+		610:
+			_grab("22_video")
+		614:
+			_key(KEY_ESCAPE)
+		618:
+			_key(KEY_DOWN)
+			_key(KEY_ENTER)                 # AUDIO
+		626:
+			_grab("23_audio")
+		630:
+			_key(KEY_ESCAPE)
+		634:
+			_key(KEY_DOWN)                  # AUDIO -> CONTROLS
+			_key(KEY_ENTER)
+		642:
+			_grab("24_keybinds")
+		646:
+			_key(KEY_ENTER)                 # start a rebind, to show the prompt
+		652:
+			_grab("25_rebind")
+		656:
+			_key(KEY_ESCAPE)
 			print("done.")
 			quit(0)
 			return true
@@ -137,6 +267,11 @@ func _warp(tx: int, ty: int) -> void:
 	p.global_position = Vector2((tx + 0.5) * LevelMap.TILE,
 			float((ty + 1) * LevelMap.TILE))
 	p.velocity = Vector2.ZERO
+	# parked next to a hollow for twenty-odd frames per shot, he was arriving at
+	# the last few screens already dead
+	p.health = p.health_max
+	p.stamina = p.stamina_max
+	p.health_changed.emit(p.health, p.health_max)
 	for c in p.get_children():
 		if c is Camera2D:
 			(c as Camera2D).reset_smoothing()   # otherwise the shot is mid-pan

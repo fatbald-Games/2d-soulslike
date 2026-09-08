@@ -29,6 +29,7 @@ var health := HEALTH_MAX
 var _t := 0.0
 var _hit_done := false
 var _rewarded := false
+var _flash_tween: Tween
 
 @onready var sprite: AnimatedSprite2D = $Sprite
 
@@ -129,22 +130,43 @@ func _strike() -> void:
 			p.take_damage(DAMAGE, global_position)
 
 
-func take_damage(amount: float, from: Vector2) -> void:
+## `knock` is how hard it throws them: the axe and the shield bash move a hollow
+## clean out of its own attack range, which is most of what they are for.
+func take_damage(amount: float, from: Vector2, knock: float = 70.0) -> void:
 	if state == State.DEAD:
 		return
 	health -= amount
+	_flash()
+	Audio.play("hit_flesh")
 	var away := 1.0 if global_position.x >= from.x else -1.0
-	velocity.x = away * 70.0
+	velocity.x = away * knock
+	if knock > 160.0:
+		velocity.y = -70.0
 	if health <= 0.0:
 		_die()
 	else:
 		_enter(State.HURT)
 
 
+## A blown-out white frame on contact. Two frames of it is the difference
+## between "the number went down" and "that landed".
+func _flash() -> void:
+	if _flash_tween != null and _flash_tween.is_valid():
+		_flash_tween.kill()
+	sprite.modulate = Color(2.4, 2.2, 2.2)
+	_flash_tween = create_tween()
+	_flash_tween.tween_property(sprite, "modulate", Color(1, 1, 1), 0.16)
+
+
+func is_dead() -> bool:
+	return state == State.DEAD
+
+
 func _die() -> void:
 	_enter(State.DEAD)
 	if not _rewarded:
 		_rewarded = true
+		Run.slain += 1
 		var p := _player()
 		if p != null and p.has_method("add_souls"):
 			p.add_souls(SOULS_REWARD)

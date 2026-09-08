@@ -30,7 +30,7 @@ SOLID, AIR, PLAT, LADDER, WATER = '#', '.', '=', 'H', 'w'
 BURIED = 'X'
 PASSABLE = (AIR, PLAT, LADDER, WATER)
 FOOTING = (SOLID, PLAT, BURIED)
-ROCK_DEPTH = 2                      # how deep rock is still drawn near an opening
+ROCK_DEPTH = 6                      # how deep rock is still drawn near an opening
 
 # --- player movement envelope, derived from scripts/Player.gd ----------------
 # GRAVITY 900, JUMP_VELOCITY -270, SPEED 78  ->  apex 40.5px (2.5 tiles), and
@@ -106,6 +106,32 @@ class Level:
         e = {"kind": kind, "x": x, "y": y}
         e.update(kw)
         self.entities.append(e)
+
+    # --- dressing ---
+    # Props are hung off the geometry rather than at hand-typed pixel heights:
+    # ask for a chain at column x and it finds the ceiling itself, so re-cutting
+    # a room cannot leave a chain floating in the middle of it.
+    def ceiling_above(self, x, y):
+        """Row of the first solid tile above (x, y)."""
+        yy = y
+        while yy > 0 and self.at(x, yy) in PASSABLE:
+            yy -= 1
+        return yy
+
+    def floor_below(self, x, y):
+        """Last open row above the floor under (x, y)."""
+        yy = y
+        while yy < H - 1 and self.at(x, yy + 1) in PASSABLE:
+            yy += 1
+        return yy
+
+    def hang(self, deco, x, y, span=1, step=1):
+        for xx in range(x, x + span * step, step):
+            self.ent("deco", xx, self.ceiling_above(xx, y) + 1, deco=deco)
+
+    def stand(self, deco, x, y, span=1, step=1):
+        for xx in range(x, x + span * step, step):
+            self.ent("deco", xx, self.floor_below(xx, y), deco=deco, stand=1)
 
     def torches(self, x0, x1, y, step):
         for x in range(x0, x1 + 1, step):
@@ -226,7 +252,7 @@ def build():
         L.ent("hollow", x, y)
 
     # ============================================================== lighting ==
-    L.torches(8, 52, 42, 10)                                   # gate
+    L.torches(6, 54, 42, 6)                                    # gate
     for x, y in [(62, 43), (74, 48), (64, 56), (72, 64)]:       # descent
         L.ent("torch", x, y)
     L.torches(80, 166, 73, 11)                                 # ossuary gallery
@@ -246,31 +272,93 @@ def build():
     for x in range(306, 380, 12):
         L.ent("brazier", x, 124)
 
+    # ============================================================== dressing ==
+    # Eight regions that differ only in hue still look like eight repaints of
+    # one corridor. What actually says "somewhere else" is SHAPE in the middle
+    # distance: chains in the shaft, bones in the ossuary, icicles in the vault.
+    # These hang between the back wall and the stone, so they read as depth.
+    L.hang("banner", 14, 44, 3, 18)                     # the gate
+    L.stand("pillar", 26, 46, 2, 20)
+    L.hang("arch", 34, 44)
+    L.hang("chain", 60, 50, 4, 5)                       # the descent shaft
+    L.hang("chain", 62, 66, 3, 6)
+    L.stand("bones", 82, 76, 7, 12)                     # the ossuary
+    L.stand("skull_spike", 88, 76, 5, 17)
+    L.hang("chain", 100, 62, 4, 14)
+    L.stand("pillar", 108, 76, 3, 22)
+    L.hang("arch", 130, 74)
+    L.hang("chain", 174, 92, 5, 16)                     # the cistern
+    L.stand("pillar", 186, 92, 3, 24)
+    L.hang("arch", 214, 90)
+    L.hang("roots", 256, 108, 8, 7)                     # the rootworks
+    L.stand("bones", 262, 108, 3, 15)
+    L.hang("chain", 306, 124, 5, 15)                    # the forge
+    L.hang("banner", 314, 122, 3, 22)
+    L.stand("pillar", 322, 124, 3, 20)
+    L.hang("icicles", 318, 100, 10, 6)                  # the frozen vault
+    L.hang("icicles", 320, 68, 8, 7)
+    L.stand("bones", 330, 84, 2, 24)
+    L.hang("banner", 100, 26, 5, 40)                    # the ramparts
+    L.stand("pillar", 118, 26, 6, 38)
+    L.stand("skull_spike", 136, 26, 5, 44)
+
+    # ============================================================== armoury ===
+    # Five weapons, one per region, each of them a detour off the main route.
+    # Placing them here rather than in Main means the reachability proof below
+    # has to agree that you can actually get to every one of them — a weapon you
+    # can see and never reach would be the worst possible version of this.
+    L.ent("weapon", 96, 76, weapon="axe")          # the ossuary
+    L.ent("weapon", 212, 92, weapon="spear")       # the flooded cistern
+    L.ent("weapon", 264, 108, weapon="shield")     # the rootworks
+    L.ent("weapon", 338, 68, weapon="crossbow")    # the frozen vault
+    L.ent("weapon", 210, 26, weapon="bow")         # the ramparts
+
     # ================================================================= lore ===
-    # Environmental storytelling only — no cutscenes, no NPCs. Each stone says
-    # something about why the keep is empty, and they read in the order you
-    # physically reach them.
+    # Environmental storytelling only - no cutscenes, no NPCs. One voice: the
+    # last keeper, who stayed behind to tend the fires and kept carving further
+    # in. The stones read in the order you physically reach them, and the route
+    # loops back west along the ramparts, so the last one you find is the one
+    # that turns the whole thing around on you.
     L.ent("rune", 18, 46, text="REST HERE. THE DARK BELOW DOES NOT.")
+    L.ent("rune", 30, 46,
+          text="WE SEALED IT FROM WITHIN. I HAVE HAD TIME TO CONSIDER THAT.")
     L.ent("rune", 46, 46,
-          text="WE SEALED THE KEEP FROM WITHIN. THE HOLLOWS WERE ALREADY IN IT.")
-    L.ent("rune", 62, 59, text="COUNT THE RUNGS. THERE ARE FEWER GOING UP.")
+          text="THE HOLLOWS WERE ALREADY INSIDE WHEN THE GATE CAME DOWN.")
+    L.ent("rune", 62, 59,
+          text="COUNT THE RUNGS ON THE WAY DOWN. THERE ARE FEWER GOING UP.")
     L.ent("rune", 92, 76,
           text="THEY LAID THE DEAD IN ROWS UNTIL THERE WERE NO MORE ROWS.")
+    L.ent("rune", 140, 76,
+          text="I KNEW EVERY NAME DOWN HERE. I STOPPED WRITING AT FOUR HUNDRED.")
     L.ent("rune", 144, 64, text="CLIMB HIGH ENOUGH AND THE ASH LOOKS LIKE SNOW.")
     L.ent("rune", 190, 92,
           text="THE CISTERN FED THE KEEP. NOW IT ONLY KEEPS THINGS.")
+    L.ent("rune", 222, 92,
+          text="SOMETHING TURNED THE WATER. I LOOKED FOR YEARS. NEVER SAW IT.")
     L.ent("rune", 234, 92, text="DO NOT DRINK. WE LEARNED THAT ONE TOGETHER.")
     L.ent("rune", 266, 108,
           text="THE ROOTS CAME UP THROUGH THE FLOOR AND NOBODY PULLED THEM OUT.")
     L.ent("rune", 280, 108, text="SOMETHING DOWN HERE STILL GROWS. NOTHING ELSE DOES.")
+    L.ent("rune", 286, 108,
+          text="IF YOU FOUND THE SPEAR, THE MAN WHO CARRIED IT GOT THIS FAR.")
+    L.ent("rune", 306, 124, text="I TEND THE FIRES. THAT IS THE WHOLE OF IT NOW.")
     L.ent("rune", 320, 124,
-          text="THE FIRES WERE NEVER BANKED. WHOEVER TENDS THEM HAS NOT STOPPED.")
+          text="THE FIRES WERE NEVER BANKED. WHOEVER TENDS THEM HAS NOT SLEPT.")
     L.ent("rune", 370, 124, text="EVERY DOOR OUT OF HERE OPENS INWARD.")
+    L.ent("rune", 330, 68,
+          text="WE PUT THE ARMOURY IN THE COLD SO IT WOULD OUTLAST US. IT HAS.")
     L.ent("rune", 356, 84, text="THE COLD KEEPS THEM. THAT IS ALL IT IS FOR.")
-    L.ent("rune", 358, 52, text="I COUNTED THE FLOORS ON THE WAY DOWN. I GET A DIFFERENT NUMBER NOW.")
+    L.ent("rune", 358, 52,
+          text="I COUNTED THE FLOORS ON THE WAY DOWN. THE NUMBER HAS CHANGED.")
     L.ent("rune", 300, 26, text="FROM HERE YOU CAN SEE HOW FAR YOU FELL.")
-    L.ent("rune", 96, 26,
-          text="THE GATE AHEAD OPENS FROM THE OTHER SIDE. NOTHING ON THIS SIDE DOES.")
+    L.ent("rune", 250, 26, text="THE ASH ON THIS WALL IS NOT FROM THE FORGE.")
+    L.ent("rune", 180, 26, text="I WALKED THIS WALL EVERY NIGHT. IT HELPED, FOR A WHILE.")
+    L.ent("rune", 112, 26,
+          text="THE GATE AHEAD OPENS FROM THE OTHER SIDE. NOTHING HERE DOES.")
+    # The last stone on the route, and the only one that is about you. Reading
+    # it ends the run - marked here rather than hard-coded in Main, so moving it
+    # moves the ending with it.
+    L.ent("rune", 96, 26, text="YOU CAME IN THROUGH THAT GATE. SO DID I.", final=1)
     return L
 
 
@@ -365,8 +453,8 @@ def validate(L):
     stand_nodes = {n for n in seen if n[0] == 'S'}
 
     for e in L.entities:
-        if e["kind"] == "torch":
-            continue                             # torches are mounted on walls
+        if e["kind"] in ("torch", "deco"):
+            continue                # both are mounted on the geometry, not stood on
         x, y = e["x"], e["y"]
         if not standable(L, x, y):
             problems.append("%s at (%d,%d) has no footing" % (e["kind"], x, y))
@@ -431,6 +519,31 @@ def bury(L):
     return buried
 
 
+def theme_map(L):
+    """One theme index per tile, by NEAREST area rather than only inside one.
+
+    The area rects only cover the rooms themselves, so every tile between them
+    - all the rock, and the shafts joining one region to the next - used to
+    fall back to area 0 and get drawn in the gate's blue stone. That put a hard
+    seam of the wrong colour under half the map. Nearest-rect instead lets each
+    region's stone bleed outward until it meets the next one's.
+    """
+    rows = []
+    for y in range(H):
+        row = []
+        for x in range(W):
+            best, best_d = 0, None
+            for i, a in enumerate(L.areas):
+                dx = max(a["x"] - x, 0, x - (a["x"] + a["w"] - 1))
+                dy = max(a["y"] - y, 0, y - (a["y"] + a["h"] - 1))
+                d = dx * dx + dy * dy
+                if best_d is None or d < best_d:
+                    best, best_d = i, d
+            row.append(str(best))
+        rows.append("".join(row))
+    return rows
+
+
 def emit(L, solids, plats):
     q = lambda s: '"%s"' % s.replace('\\', '\\\\').replace('"', '\\"')
     out = []
@@ -462,6 +575,14 @@ def emit(L, solids, plats):
         a("\t[%d, %d, %d, %d]," % r)
     a("]")
     a("")
+    a("## One area index per tile, by nearest area rect (see theme_map). This is")
+    a("## what stone each tile is drawn in - NOT which region you are standing")
+    a("## in, which is AREAS and only covers the named rooms.")
+    a("const THEME_OF := [")
+    for row in theme_map(L):
+        a("\t%s," % q(row))
+    a("]")
+    a("")
     a("const AREAS := [")
     for ar in L.areas:
         lit = THEME_LIGHT[ar["theme"]]
@@ -476,6 +597,13 @@ def emit(L, solids, plats):
         parts = ['"kind": %s' % q(e["kind"]), '"x": %d' % e["x"], '"y": %d' % e["y"]]
         if "text" in e:
             parts.append('"text": %s' % q(e["text"]))
+        if "weapon" in e:
+            parts.append('"weapon": %s' % q(e["weapon"]))
+        if "final" in e:
+            parts.append('"final": %d' % e["final"])
+        if "deco" in e:
+            parts.append('"deco": %s' % q(e["deco"]))
+            parts.append('"stand": %d' % e.get("stand", 0))
         a("\t{%s}," % ", ".join(parts))
     a("]")
     a("")

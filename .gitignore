@@ -1,12 +1,14 @@
 # Godot 4+
 .godot/
-# Import-Metadaten legt Godot beim ersten Öffnen selbst wieder an; die Sprites
-# stammen ohnehin aus gen_art.py, deshalb bleiben sie aus der Versionierung raus.
+# Godot rewrites the import metadata the first time the project is opened, and
+# the sprites come out of gen_art.py anyway, so neither is versioned here.
 *.import
 /android/
 /build/
-export_presets.cfg
 *.tmp
 
-# Python art tooling
+# Python art and audio tooling
 tools/__pycache__/
+
+# Release builds
+/build/

@@ -194,6 +194,9 @@ def stone_floor(seed=1):
 # level data, not art. It is half the effect either way: cold blue stone lit
 # warm orange still reads as the same room you just left.
 
+## How many variants of each stone tile get generated. Level.gd must agree.
+TILE_VARIANTS = 4
+
 THEMES = {
     "gate": {
         "ramp": [(24, 22, 32), (40, 39, 54), (58, 56, 78), (82, 80, 106)],
@@ -209,13 +212,17 @@ THEMES = {
         "detail": "algae"},
     "rootworks": {
         "ramp": [(24, 18, 30), (40, 30, 48), (56, 44, 66), (78, 62, 88)],
-        "detail": "spore"},
+        "detail": "spore", "speck": 0.5},
     "forge": {
-        "ramp": [(32, 20, 16), (54, 32, 24), (78, 46, 32), (106, 62, 40)],
-        "detail": "ember"},
+        # pulled back from a full-saturation red: a whole screen of it was one
+        # loud colour with the knight lost somewhere inside it
+        "ramp": [(30, 21, 19), (50, 34, 28), (72, 48, 38), (98, 64, 46)],
+        # sparse on purpose: at full density the embers stopped being sparks in
+        # the stone and became the stone
+        "detail": "ember", "speck": 0.35},
     "vault": {
         "ramp": [(28, 34, 44), (46, 56, 72), (68, 82, 102), (96, 116, 140)],
-        "detail": "ice"},
+        "detail": "ice", "speck": 0.7},
     "ramparts": {
         "ramp": [(22, 24, 34), (36, 40, 54), (52, 58, 76), (74, 82, 104)],
         "detail": "none"},
@@ -268,7 +275,7 @@ def themed_floor(theme, seed):
         px[8, y] = _rgba(r[0])
     for _ in range(10):
         px[rng.randint(1, 15), rng.randint(1, 15)] = _rgba(r[2])
-    _speckle(px, rng, t["detail"], 5)
+    _speckle(px, rng, t["detail"], int(round(5 * t.get("speck", 1.0))))
     return img
 
 
@@ -296,18 +303,195 @@ def themed_wall(theme, seed):
         for x in range(16):
             if px[x, y] != dark:
                 px[x, y] = _rgba(r[2])
-    _speckle(px, rng, t["detail"], 3)
+    _speckle(px, rng, t["detail"], int(round(3 * t.get("speck", 1.0))))
     return img
+
+
+# --- the lit top surface of solid ground -------------------------------------
+# Without this every region was one flat field of noise: you could not see where
+# the floor you stand on ENDED and the wall behind it began. A crust on the top
+# face — ash, bone chips, wet algae, roots, embers, frost — is what turns a
+# tiled texture back into ground.
+CAP_COLOURS = {
+    "gate":      [(96, 92, 104), (62, 59, 74)],     # ash dust
+    "descent":   [(76, 80, 100), (46, 48, 66)],     # bare lit lip
+    "ossuary":   [(164, 156, 136), (110, 103, 88)],  # bone chips
+    "cistern":   [(70, 126, 102), (34, 76, 68)],    # wet algae
+    "rootworks": [(104, 158, 96), (52, 94, 58)],    # moss and rootlets
+    "forge":     [(186, 92, 40), (112, 46, 22)],    # cooling embers
+    "vault":     [(196, 220, 238), (130, 162, 192)],  # frost
+    "ramparts":  [(204, 208, 220), (134, 142, 162)],  # wind-blown ash
+}
+
+
+def themed_cap(theme, seed):
+    """A floor tile with its top face crusted over and lit.
+
+    The crust is 2-3px of ragged material, then a dark seam a couple of rows
+    down. The seam matters as much as the crust: it is the shadow that makes
+    the lip read as an edge you could stand on rather than a change of colour.
+    """
+    img = themed_floor(theme, seed)
+    px = img.load()
+    hi, lo = [_rgba(c) for c in CAP_COLOURS[theme]]
+    dark = _rgba(THEMES[theme]["ramp"][0])
+    rng = random.Random(seed * 31 + 7)
+    for x in range(16):
+        h = 2 + (1 if rng.random() < 0.42 else 0)
+        for y in range(h):
+            px[x, y] = hi if y == 0 else lo
+        if rng.random() < 0.24:                 # material dribbling down the face
+            px[x, h] = lo
+    for x in range(16):                         # the shadow under the crust
+        if rng.random() < 0.72:
+            px[x, 4] = dark
+    return img
+
+
+# ================================================================== DECO ======
+# Silhouettes hung in the open space in front of the back wall. They are drawn
+# almost black on purpose: the point is to break up a flat brick field with
+# SHAPE, not to add another competing texture. Level.gd tints each one with its
+# region's stone colour, so one sheet dresses all eight.
+#
+# 16x32 frames, anchored top-left; things that hang use the top rows, things
+# that stand use the bottom.
+# Pitched to sit in the same range as the stone ramps: the props are darkened
+# twice over on the way to the screen (the region's ambient, then their own
+# tint), and at true silhouette values they simply vanished.
+DECO_PAL = {
+    '.': T,
+    'o': (26, 24, 33, 255),      # silhouette core
+    'd': (52, 49, 64, 255),      # body
+    'm': (84, 80, 100, 255),     # lit side
+    'l': (124, 118, 140, 255),   # rim highlight
+    'b': (132, 126, 112, 255),   # bone / pale
+    'B': (186, 178, 160, 255),
+}
+
+DECO_CHAIN = [
+    "......dm........", "......om........", "......dm........", ".....odmo.......",
+    ".....o..o.......", ".....odmo.......", "......dm........", "......om........",
+    "......dm........", ".....odmo.......", ".....o..o.......", ".....odmo.......",
+    "......dm........", "......om........", "......dm........", ".....odmo.......",
+    ".....o..o.......", ".....odmo.......", "......dm........", "......om........",
+    "......dm........", ".....odmo.......", ".....o..o.......", ".....odmo.......",
+    "......dm........", "......om........", "....oodmoo......", "...od....do.....",
+    "...o.dmmm.o.....", "....o.dm.o......", ".....oooo.......", "................",
+]
+
+DECO_PILLAR = [
+    "..oddmmmmlddo...", "..od........do..", "..oddmmmmlddo...", "...odmmmmld o...",
+    "...od mmmml do..", "....odmmmmldo...", "....od mmml do..", "....odmmmmldo...",
+    "....o.dmmml.o...", "....odmmmmldo...", "....od.mml..o...", "....odmmmmldo...",
+    "....odmmm.ldo...", "....odmmmmldo...", "....o..mml..o...", "....odmmmmldo...",
+    "....odmmmmldo...", "....od.mmml.o...", "....odmmmmldo...", "....odmm.mldo...",
+    "....odmmmmldo...", "....o.dmmml.o...", "....odmmmmldo...", "....odmmmmldo...",
+    "...odmmmmmmldo..", "...od........do.", "..oddmmmmmmlddo.", "..od.........do.",
+    "..oddmmmmmmlddo.", "...o.........o..", "................", "................",
+]
+
+DECO_BONES = [
+    "................", "................", "................", "................",
+    "................", "................", "................", "................",
+    "................", "................", "................", "................",
+    "................", "................", "................", "................",
+    "................", "................", "..........bo....", ".........obBbo..",
+    ".....bo...ob.bo.", "....obBbo..obbo.", "...ob...bo..oo..", "..bo.bo..b......",
+    ".obBbo.obBbo....", "ob...bo....bo...", ".....b..bo...b..", "obbo..obBbo.obo.",
+    "o..bo.b...bo.b..", "obbbo.obbbbo.bo.", "oooooooooooooooo", "................",
+]
+
+DECO_ROOTS = [
+    ".......dm.......", "......odmo......", "......dm.o......", ".....odm..o.....",
+    ".....dm...dm....", "....odmo..om....", "....dm.....dm...", "...odm..o..om...",
+    "...dm...dm..dm..", "..odmo..om..om..", "..dm.....dm.dm..", ".odm..o..om.om..",
+    ".dm...dm..dm.dm.", "odmo..om..om.om.", "dm.....dm.dm.dm.", "m..o...om.om.om.",
+    "...dm...dm.dm.m.", "...om...om.om...", "....dm...dm.m...", "....om...om.....",
+    ".....dm...m.....", ".....om.........", "......m.........", "................",
+    "................", "................", "................", "................",
+    "................", "................", "................", "................",
+]
+
+DECO_ICICLES = [
+    "oBbo.obBbo.oBbo.", "oBbo.obBbo.oBbo.", ".Bbo.obBbo.oBb..", ".Bb..obBbo..Bb..",
+    ".Bb..obBbo..Bb..", ".b...obBb...b...", ".b....bBb...b...", ".b....bBb...b...",
+    "......bBb.......", "......bBb.......", "......bB........", "......bB........",
+    ".......b........", ".......b........", "................", "................",
+    "................", "................", "................", "................",
+    "................", "................", "................", "................",
+    "................", "................", "................", "................",
+    "................", "................", "................", "................",
+]
+
+DECO_BANNER = [
+    "oooooooooooooooo", "od############do", ".od##########do.", ".od##########do.",
+    ".od##########do.", ".od##########do.", ".od##########do.", ".od####@#####do.",
+    ".od###@@@####do.", ".od##@@@@@###do.", ".od###@@@####do.", ".od####@#####do.",
+    ".od##########do.", ".od##########do.", ".od##########do.", ".od##########do.",
+    ".od##########do.", ".od##########do.", ".od##########do.", ".od##########do.",
+    ".od#########do..", ".od########do...", "..od######do....", "...od####do.....",
+    "....od##do......", ".....odo........", "................", "................",
+    "................", "................", "................", "................",
+]
+
+DECO_SKULL_SPIKE = [
+    "................", "................", "................", "................",
+    "................", "................", "................", "................",
+    "................", "......bBb.......", ".....obBBbo.....", ".....bB..Bb.....",
+    ".....bo..ob.....", ".....bBbbBb.....", "......bBBb......", ".......dm.......",
+    ".......dm.......", ".......dm.......", ".......dm.......", ".......dm.......",
+    ".......dm.......", ".......dm.......", ".......dm.......", ".......dm.......",
+    ".......dm.......", ".......dm.......", ".......dm.......", ".......dm.......",
+    "......odmo......", ".....od..do.....", "....o......o....", "................",
+]
+
+DECO_ARCH = [
+    "oooooooooooooooo", "od############do", "odm##########mdo", "odmm########mmdo",
+    "odmmm######mmmdo", "odmmml####lmmmdo", "odmmm.l##l.mmmdo", "odmm...ll...mmdo",
+    "odm..........mdo", "od............do", "od............do", "od............do",
+    "od............do", "od............do", "od............do", "od............do",
+    "od............do", "od............do", "od............do", "od............do",
+    "od............do", "od............do", "od............do", "od............do",
+    "od............do", "od............do", "od............do", "od............do",
+    "od############do", "oooooooooooooooo", "................", "................",
+]
+
+DECO_NAMES = ["chain", "pillar", "bones", "roots", "icicles", "banner",
+              "skull_spike", "arch"]
+DECO_GRIDS = [DECO_CHAIN, DECO_PILLAR, DECO_BONES, DECO_ROOTS, DECO_ICICLES,
+              DECO_BANNER, DECO_SKULL_SPIKE, DECO_ARCH]
+
+
+def deco_frames():
+    pal = dict(DECO_PAL)
+    pal['#'] = (92, 42, 44, 255)      # banner cloth
+    pal['@'] = (156, 70, 56, 255)     # its faded device
+    out = []
+    for g in DECO_GRIDS:
+        rows = [r.ljust(16, '.')[:16] for r in g]
+        while len(rows) < 32:
+            rows.append('.' * 16)
+        out.append(grid_to_img(rows[:32], pal))
+    return out
 
 
 def water_tile():
     """Standing water in the cistern: you wade through it, so it is drawn over
-    the floor rather than replacing it, and it never collides."""
+    the floor rather than replacing it, and it never collides.
+
+    Level.gd draws a lit surface line on whichever tiles have air above them,
+    so the body of water gets one edge instead of a stripe per tile.
+    """
     img = Image.new("RGBA", (16, 16), T)
     px = img.load()
+    rng = random.Random(404)
     for y in range(16):
         for x in range(16):
             px[x, y] = (30, 74, 92, 118)
+    for _ in range(14):                       # a little silt and movement
+        x, y = rng.randint(0, 15), rng.randint(2, 15)
+        px[x, y] = (44, 96, 114, 130)
     for x in range(16):
         px[x, 0] = (96, 168, 180, 190)         # the surface catches the light
         px[x, 1] = (52, 108, 126, 150)
@@ -510,11 +694,24 @@ def _overlay(base_img, flame_rows, top):
 
 
 def bonfire_frames():
+    """Four burning frames, then a fifth: the cold pile before you light it.
+    An unlit bonfire you can see from across a room is a promise, and lighting
+    it is the clearest progress marker the game has."""
     base = grid_to_img(BONFIRE_BASE)
     flames = [FLAME_A, FLAME_B, FLAME_C, FLAME_B]
-    frames = []
-    for fl in flames:
-        frames.append(_overlay(base, fl, 3))
+    frames = [_overlay(base, fl, 3) for fl in flames]
+    cold = base.copy()
+    px = cold.load()
+    for y in range(cold.height):          # drained of all warmth
+        for x in range(cold.width):
+            r, g, b, a = px[x, y]
+            if a:
+                # keep some value in it: at true luminance the dead fire was
+                # invisible against the floor, and you cannot walk toward
+                # something you cannot see
+                v = int(min(255, (r * 0.30 + g * 0.42 + b * 0.28) * 1.22 + 8))
+                px[x, y] = (v, v, int(min(255, v * 1.15)), a)
+    frames.append(cold)
     return frames
 
 
@@ -630,19 +827,184 @@ def _arc(img, px, py, r, a0, a1, col, inner=None):
                  py + int(round(sa * (r - 2))), inner)
 
 
+# =============================================================== WEAPONS =====
+# Six weapons, every one of them drawn procedurally out of the knight's hand so
+# that idle, run and attack all carry the SAME piece of steel.
+#
+# At 44x32 there are maybe twenty pixels to characterise a weapon with, so what
+# separates them is silhouette, not detail: the axe is a crescent on a stick,
+# the spear is longer than the knight is tall, the bow is a curve, the crossbow
+# is a cross, the shield is a slab. You should be able to tell what he is
+# holding from across the room, at 1x.
+
+WEAPON_KINDS = ["sword", "axe", "spear", "bow", "crossbow", "shield"]
+
+
+def _across(ang):
+    """The 1px offset that thickens a line ACROSS its own direction, so
+    diagonals come out as clean double lines instead of a hatched mess."""
+    if abs(math.cos(ang)) >= abs(math.sin(ang)):
+        return 0, 1            # mostly horizontal -> thicken vertically
+    return 1, 0                # mostly vertical   -> thicken horizontally
+
+
+def _perp(ang):
+    """True perpendicular, as floats — for limbs that must stay square to the
+    aim at any angle rather than snapping to the pixel grid."""
+    return -math.sin(ang), math.cos(ang)
+
+
+def _tip(px, py, ang, length):
+    return (px + int(round(math.cos(ang) * length)),
+            py + int(round(math.sin(ang) * length)))
+
+
+def _shaft(img, px, py, ang, length, col, hi):
+    """Two-pixel haft from the hand outward. Returns the tip."""
+    tx, ty = _tip(px, py, ang, length)
+    ox, oy = _across(ang)
+    _line(img, px, py, tx, ty, hi)
+    _line(img, px + ox, py + oy, tx + ox, ty + oy, col)
+    return tx, ty
+
+
+def _paste_grid(img, rows, x, y, pal=PAL):
+    """Blit a character grid at (x,y), clipped — the weapon poses swing things
+    right up to the edge of the frame and off it."""
+    for gy, row in enumerate(rows):
+        for gx, ch in enumerate(row):
+            col = pal.get(ch, T)
+            if col[3]:
+                putp(img, x + gx, y + gy, col)
+
+
+def _axe(img, px, py, ang, length):
+    """Great axe: a heavy crescent head on a short wooden haft."""
+    tx, ty = _shaft(img, px, py, ang, length, PAL['l'], PAL['L'])
+    hx, hy = _tip(px, py, ang, length - 3)
+    _arc(img, hx, hy, 5, ang - 0.95, ang + 0.95, PAL['S'], inner=PAL['s'])
+    putp(img, tx, ty, PAL['s'])                  # a spike past the head
+    ox, oy = _across(ang)
+    for g in (-1, 1):                            # brass collar at the grip
+        putp(img, px + g * oy, py + g * ox, PAL['g'])
+
+
+def _spear(img, px, py, ang, length):
+    """Winged spear: reach at the cost of everything else."""
+    _shaft(img, px, py, ang, length, PAL['l'], PAL['L'])
+    ox, oy = _across(ang)
+    for k in range(4):                           # slim leaf head
+        hx, hy = _tip(px, py, ang, length - k)
+        putp(img, hx, hy, PAL['S'])
+        if k:
+            putp(img, hx + ox, hy + oy, PAL['s'])
+    wx, wy = _tip(px, py, ang, length - 5)       # the wings that name it
+    putp(img, wx + ox * 2, wy + oy * 2, PAL['s'])
+    putp(img, wx - ox, wy - oy, PAL['s'])
+
+
+def _bow(img, px, py, ang, pull=0.0, arrow=True):
+    """Hunting bow: the stave bows away from the archer, the string behind it.
+    `pull` is how far back the nock is drawn, in pixels."""
+    cx, cy = _tip(px, py, ang, 2)
+    _arc(img, cx, cy, 7, ang - 1.25, ang + 1.25, PAL['L'], inner=PAL['l'])
+    limbs = [(cx + int(round(math.cos(ang + s * 1.25) * 7)),
+              cy + int(round(math.sin(ang + s * 1.25) * 7))) for s in (-1, 1)]
+    nock = _tip(px, py, ang, -pull)
+    for lx, ly in limbs:
+        _line(img, lx, ly, nock[0], nock[1], PAL['N'])
+    if arrow:
+        ax, ay = _tip(nock[0], nock[1], ang, 13)
+        _line(img, nock[0], nock[1], ax, ay, PAL['s'])
+        putp(img, ax, ay, PAL['S'])
+
+
+def _crossbow(img, px, py, ang, loaded=True, flash=False):
+    """Iron crossbow: a stock along the aim, short steel limbs square to it."""
+    tx, ty = _shaft(img, px, py, ang, 11, PAL['l'], PAL['L'])
+    fx, fy = _tip(px, py, ang, 8)
+    ux, uy = _perp(ang)
+    limbs = []
+    for s in (-1, 1):
+        ex = fx + int(round(ux * 5 * s))
+        ey = fy + int(round(uy * 5 * s))
+        _line(img, fx, fy, ex, ey, PAL['d'])
+        putp(img, ex, ey, PAL['s'])
+        limbs.append((ex, ey))
+    # drawn back over the nut when loaded, snapped forward once it has fired
+    sx, sy = _tip(px, py, ang, 4 if loaded else 7)
+    for lx, ly in limbs:
+        _line(img, lx, ly, sx, sy, PAL['N'])
+    if loaded:
+        bx, by = _tip(px, py, ang, 15)
+        _line(img, sx, sy, bx, by, PAL['S'])
+    if flash:
+        _arc(img, tx, ty, 3, ang - 0.9, ang + 0.9, PAL['y'])
+
+
+# A heater shield, seen edge-on-ish from the side: a slab with a brass boss.
+SHIELD_GRID = [
+    ".oooooo.",
+    "oDDDDDDo",
+    "oDCCCCDo",
+    "oDCgCCDo",
+    "oDCCCCDo",
+    "oDDDDDDo",
+    ".oDDDDo.",
+    ".oDDDDo.",
+    "..oDDo..",
+    "...oo...",
+]
+
+
+def _shield(img, px, py, forward=0, raised=False):
+    _paste_grid(img, SHIELD_GRID, px - 2 + forward, py - (6 if raised else 3))
+
+
+def _draw_weapon(img, kind, px, py, ang, length):
+    """Whichever weapon, swung the same way — one call site for every pose."""
+    if kind == "axe":
+        _axe(img, px, py, ang, length)
+    elif kind == "spear":
+        _spear(img, px, py, ang, length)
+    else:
+        _blade(img, px, py, ang, length)
+
+
+def _carry(f, kind, hx, hy, moving=False):
+    """The weapon as it is CARRIED, in the idle and run frames."""
+    if kind == "sword":
+        _blade(f, hx, hy, REST_ANGLE + (0.15 if moving else 0.0), 12 if moving else 11)
+    elif kind == "axe":
+        _axe(f, hx, hy, REST_ANGLE + (0.20 if moving else 0.05), 10)
+    elif kind == "spear":
+        # shouldered upright: the one weapon you can spot by its silhouette
+        _spear(f, hx - 1, hy - 1, -1.45 + (0.12 if moving else 0.0), 16)
+    elif kind == "bow":
+        _bow(f, hx, hy - 1, 1.30, pull=0.0, arrow=False)
+    elif kind == "crossbow":
+        _crossbow(f, hx - 2, hy, 0.55, loaded=True)
+    elif kind == "shield":
+        _shield(f, hx, hy, forward=0, raised=False)
+
+
 # ------------------------------------------------------------------ idle -----
-def hero_idle32():
+def hero_idle_w(kind):
     body = grid_to_img(PLAYER)
     frames = []
     for bob in (0, 1, 1, 0):        # slow armoured breathing
         f = frame40(body, BODY_OX, BODY_OY + bob)
-        _blade(f, REST_HAND[0], REST_HAND[1] + bob, REST_ANGLE, 12)
+        _carry(f, kind, REST_HAND[0], REST_HAND[1] + bob)
         frames.append(f)
     return frames
 
 
+def hero_idle32():
+    return hero_idle_w("sword")
+
+
 # ------------------------------------------------------------------- run -----
-def hero_run32():
+def hero_run_w(kind):
     upper = grid_to_img(PLAYER_UPPER)
     frames = []
     N = 6
@@ -666,29 +1028,141 @@ def hero_run32():
             for bxo in (0, 1, 2):
                 putp(f, lx + bxo, by, PAL['B'])
                 putp(f, lx + bxo, by + 1, PAL['A'])
-        _blade(f, REST_HAND[0], REST_HAND[1] + bob, REST_ANGLE + 0.15, 11)
+        _carry(f, kind, REST_HAND[0], REST_HAND[1] + bob, moving=True)
         frames.append(f)
     return frames
+
+
+def hero_run32():
+    return hero_run_w("sword")
 
 
 # ---------------------------------------------------------------- attack -----
-def hero_attack32():
+# (blade angle, blade length, trail: 0 none / 1 crescent / 2 straight, lunge px)
+ATTACK_SPECS = {
+    # overhead cut: wind up behind the shoulder, come down through the target
+    "sword": [(-2.15, 12, 0, 0), (-1.05, 13, 0, 0), (0.30, 14, 1, 2), (1.15, 12, 0, 1)],
+    # the axe winds up FURTHER and lands HARDER — the extra frame of travel is
+    # what the animation has to sell in place of the damage number
+    "axe": [(-2.60, 11, 0, -1), (-1.75, 11, 0, -1), (0.55, 12, 1, 4), (1.30, 11, 0, 2)],
+    # the spear does not swing at all: it retracts, then goes straight out
+    "spear": [(0.14, 10, 0, -1), (0.10, 8, 0, -2), (0.00, 20, 2, 4), (0.06, 15, 0, 1)],
+}
+
+
+def hero_attack_w(kind):
     body = grid_to_img(PLAYER)
     frames = []
-    # (blade angle, blade length, slash arc?, body lunge in px)
-    specs = [(-2.15, 12, False, 0),   # 0 wind-up, blade back over the shoulder
-             (-1.05, 13, False, 0),   # 1 raised
-             (0.30, 14, True, 2),     # 2 strike — full extension + slash arc
-             (1.15, 12, False, 1)]    # 3 recovery
-    for ang, length, slash, lunge in specs:
+
+    if kind in ATTACK_SPECS:
+        for ang, length, trail, lunge in ATTACK_SPECS[kind]:
+            f = frame40(body, BODY_OX + lunge, BODY_OY)
+            px, py = HAND[0] + lunge, HAND[1] - 1
+            if trail == 1:
+                _arc(f, px, py, 13 if kind == "sword" else 16,
+                     -0.55, 0.95, PAL['W'], inner=PAL['S'])
+            elif trail == 2:
+                sx, sy = _tip(px, py, ang, length + 3)
+                _line(f, px + 9, py - 2, sx, sy - 2, PAL['W'])
+            _draw_weapon(f, kind, px, py, ang, length)
+            frames.append(f)
+        return frames
+
+    if kind == "bow":
+        # nock -> draw -> loose (the arrow is gone; it is a real one now) -> re-nock
+        for pull, arrow, lunge, flash in ((0, True, 0, False), (4, True, 0, False),
+                                          (0, False, 1, True), (0, True, 0, False)):
+            f = frame40(body, BODY_OX + lunge, BODY_OY)
+            px, py = HAND[0] + lunge - 1, HAND[1] - 3
+            _bow(f, px, py, -0.06, pull=pull, arrow=arrow)
+            if flash:
+                _arc(f, px, py, 9, -0.5, 0.5, PAL['W'])
+            frames.append(f)
+        return frames
+
+    if kind == "crossbow":
+        # levelled -> levelled -> the shot, kicking back -> spanning it again
+        for loaded, flash, lunge in ((True, False, 0), (True, False, 1),
+                                     (False, True, -2), (False, False, 0)):
+            f = frame40(body, BODY_OX + lunge, BODY_OY)
+            _crossbow(f, HAND[0] + lunge - 2, HAND[1] - 3, -0.04,
+                      loaded=loaded, flash=flash)
+            frames.append(f)
+        return frames
+
+    # shield bash: brought in tight, then driven forward off the front foot
+    for forward, raised, lunge, trail in ((-2, True, -1, False), (-1, True, 0, False),
+                                          (5, False, 4, True), (1, True, 1, False)):
         f = frame40(body, BODY_OX + lunge, BODY_OY)
         px, py = HAND[0] + lunge, HAND[1] - 1
-        if slash:
-            _arc(f, px, py, 13, -0.55, 0.95, PAL['W'], inner=PAL['S'])
-        _blade(f, px, py, ang, length)
+        if trail:
+            _arc(f, px, py, 12, -0.55, 0.55, PAL['W'])
+        _shield(f, px, py, forward, raised)
         frames.append(f)
     return frames
 
+
+def hero_attack32():
+    return hero_attack_w("sword")
+
+
+# ----------------------------------------------------------------- block -----
+def hero_block():
+    """Braced behind the shield. Two frames so the guard breathes rather than
+    freezing solid the moment you raise it."""
+    frames = []
+    for bob in (0, 1):
+        body = grid_to_img(PLAYER)
+        f = frame40(body, BODY_OX - 1, BODY_OY + bob)
+        _shield(f, HAND[0] + 1, HAND[1] - 2 + bob, forward=3, raised=True)
+        frames.append(f)
+    return frames
+
+
+# ----------------------------------------------------------- projectiles -----
+# Fletching at the back, steel at the point, so the direction of travel reads
+# even at one pixel of motion blur.
+ARROW = [
+    "N..sssssssS",
+    "NNNsssssssS",
+    "N..sssssssS",
+]
+BOLT = [
+    "N.ddddSS",
+    "NNddddSS",
+    "N.ddddSS",
+]
+
+
+def arrow_sprite():
+    return grid_to_img(ARROW)
+
+
+def bolt_sprite():
+    return grid_to_img(BOLT)
+
+
+# --------------------------------------------------------------- pickups -----
+def weapon_icons():
+    """One 14x14 icon per weapon, drawn with the same primitives as the poses —
+    so what you pick up off the floor is recognisably what you then carry."""
+    frames = []
+    for kind in WEAPON_KINDS:
+        f = Image.new("RGBA", (14, 14), T)
+        if kind == "shield":
+            _paste_grid(f, SHIELD_GRID, 3, 2)
+        elif kind == "bow":
+            _bow(f, 4, 10, -0.85, pull=0.0, arrow=False)
+        elif kind == "crossbow":
+            _crossbow(f, 2, 12, -0.85, loaded=True)
+        elif kind == "spear":
+            _spear(f, 1, 12, -0.80, 15)
+        elif kind == "axe":
+            _axe(f, 2, 12, -0.85, 9)
+        else:
+            _blade(f, 2, 12, -0.85, 13)
+        frames.append(f)
+    return frames
 
 # ------------------------------------------------------------------ roll -----
 # One tucked "wheel" of cloak, rotated 4x -> a readable forward dodge-roll.
@@ -820,7 +1294,7 @@ os.makedirs(UI_OUT, exist_ok=True)
 # looks a glyph up purely by its index in here.
 # '+' is appended LAST on purpose: a glyph is found by its index in this
 # string, so adding to the end leaves every existing index untouched.
-FONT_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,:!?'-()/ +"
+FONT_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,:!?'-()/ +%"
 GLYPH_W, GLYPH_H = 5, 7
 CELL_W, CELL_H = 6, 8
 
@@ -873,6 +1347,9 @@ GLYPHS = {
     '/': ["....#", "....#", "...#.", "..#..", ".#...", "#....", "#...."],
     ' ': [".....", ".....", ".....", ".....", ".....", ".....", "....."],
     '+': [".....", "..#..", "..#..", "#####", "..#..", "..#..", "....."],
+    # appended LAST, like '+' before it: a glyph inserted anywhere else
+    # renumbers the whole sheet and every label in the game shifts one letter
+    '%': ["##..#", "##.#.", "...#.", "..#..", ".#...", ".#.##", "#..##"],
 }
 
 # Menu layout, shared by the backdrop, the mock-up and MainMenu.gd. The
@@ -1096,6 +1573,56 @@ def big_skull(w=112, h=104):
         y = int(h * 0.63)
         if px[x, y][3]:
             px[x, y] = DARK
+    return img
+
+
+def game_icon(size=256):
+    """The application icon: the skull, ember-eyed, on dark stone.
+
+    Drawn at 256 and left unfiltered — it is the one piece of art here that gets
+    seen at a size the game never runs at (a store page, a task bar), so it uses
+    the big skull's real geometry rather than an upscaled 11px sprite.
+    """
+    img = Image.new("RGBA", (size, size), (14, 12, 18, 255))
+    px = img.load()
+    rng = random.Random(31337)
+    # a stone ground with a little grain, so the icon is not a flat swatch
+    for y in range(size):
+        for x in range(size):
+            v = rng.randint(-5, 5)
+            px[x, y] = (max(0, 14 + v), max(0, 12 + v), max(0, 20 + v), 255)
+
+    sk = big_skull(int(size * 0.78), int(size * 0.72))
+    # Embers banked in the sockets rather than filling them: only the lower part
+    # of each glows, and it fades upward. A fully lit socket reads as a lens,
+    # not as something burning inside a skull.
+    spx = sk.load()
+    sw, sh = sk.width, sk.height
+    for sgn in (-1, 1):
+        ex = sw / 2.0 + sgn * sw * 0.185
+        ey, rx, ry = sh * 0.42, sw * 0.135, sh * 0.115
+        for y in range(int(ey - ry) - 1, int(ey + ry) + 2):
+            for x in range(int(ex - rx) - 1, int(ex + rx) + 2):
+                if not (0 <= x < sw and 0 <= y < sh):
+                    continue
+                if ((x - ex) / rx) ** 2 + ((y - ey) / ry) ** 2 > 1.0:
+                    continue
+                t = (y - (ey - ry)) / (2.0 * ry)      # 0 top, 1 bottom
+                glow = max(0.0, (t - 0.30) / 0.70) ** 1.4
+                if glow <= 0.02:
+                    continue
+                spx[x, y] = (int(28 + 200 * glow), int(14 + 66 * glow),
+                             int(16 + 20 * glow), 255)
+    img.alpha_composite(sk, ((size - sk.width) // 2, int(size * 0.16)))
+
+    # vignette, matching the one the game itself draws
+    cx = cy = size / 2.0
+    for y in range(size):
+        for x in range(size):
+            d = (((x - cx) / cx) ** 2 + ((y - cy) / cy) ** 2) ** 0.5
+            f = max(0.25, 1.0 - 0.85 * max(0.0, d - 0.25) ** 1.4)
+            r, g, b, a = px[x, y]
+            px[x, y] = (int(r * f), int(g * f), int(b * f), a)
     return img
 
 
@@ -1558,9 +2085,17 @@ def main():
     save(soft_light(), "light_soft.png")
 
     # --- one stone set per region ---
+    # Four variants of each, picked per tile by a positional hash in Level.gd.
+    # One tile repeated 24 times across a 384px screen reads as wallpaper; four
+    # in a hashed shuffle reads as stone.
     for name in THEMES:
-        save(themed_floor(name, 11), "tile_floor_%s.png" % name)
-        save(themed_wall(name, 13), "tile_wall_%s.png" % name)
+        save(hsheet([themed_floor(name, 11 + i * 37) for i in range(TILE_VARIANTS)]),
+             "tile_floor_%s.png" % name)
+        save(hsheet([themed_wall(name, 13 + i * 41) for i in range(TILE_VARIANTS)]),
+             "tile_wall_%s.png" % name)
+        save(hsheet([themed_cap(name, 5 + i * 43) for i in range(TILE_VARIANTS)]),
+             "tile_cap_%s.png" % name)
+    save(hsheet(deco_frames()), "deco.png")
     save(water_tile(), "tile_water.png")
     save(hsheet(mushroom_frames()), "mushroom.png")
     save(hsheet(brazier_frames()), "brazier.png")
@@ -1573,23 +2108,31 @@ def main():
     save(hsheet(soul_orb_frames()), "soul_orb.png")
 
     # --- in-game combat animation sheets (44x32 frames, shared anchor) ---
+    # One idle / run / attack set PER WEAPON: the knight visibly carries what he
+    # has found, standing still or running, not only mid-swing.
+    for kind in WEAPON_KINDS:
+        save(hsheet(hero_idle_w(kind)), "hero_idle_%s.png" % kind)
+        save(hsheet(hero_run_w(kind)), "hero_run_%s.png" % kind)
+        save(hsheet(hero_attack_w(kind)), "hero_attack_%s.png" % kind)
+    save(hsheet(hero_block()), "hero_block.png")
+    save(hsheet(weapon_icons()), "weapon_icons.png")
+    save(arrow_sprite(), "arrow.png")
+    save(bolt_sprite(), "bolt.png")
+
     hi = hero_idle32()
     pf = hi                      # the idle frames double as the mood-shot hero
     hr = hero_run32()
     ha = hero_attack32()
     hl = hero_roll32()
     ho = hollow_frames()
-    save(hsheet(hi), "hero_idle.png")
-    save(hsheet(hr), "hero_run.png")
-    save(hsheet(ha), "hero_attack.png")
     save(hsheet(hl), "hero_roll.png")
     save(hsheet(ho), "hollow.png")
 
     # inspection previews (upscaled) — not used by the game
     tools_dir = os.path.dirname(os.path.abspath(__file__))
 
-    # combat contact sheet: one animation per row
-    anim_rows = [hi, hr, ha, hl, ho]
+    # combat contact sheet: one animation per row, one row per weapon swing
+    anim_rows = [hi, hr, hl, ho] + [hero_attack_w(k) for k in WEAPON_KINDS]
     cols = max(len(r) for r in anim_rows)
     cell = 46
     cc = Image.new("RGBA", (cols * cell, len(anim_rows) * cell), (22, 20, 28, 255))
@@ -1622,6 +2165,16 @@ def main():
     save_ui(sp_overlay, "bar_overlay_sp.png")
     backdrop = menu_backdrop(wall, floor)
     save_ui(backdrop, "menu_bg.png")
+
+    # the application icon lives at the project root, where Godot expects it
+    icon = game_icon()
+    icon.save(os.path.join(ROOT, "icon.png"))
+    # Windows wants a real .ico for the executable; Godot's exporter takes the
+    # path straight from export_presets.cfg
+    icon.save(os.path.join(ROOT, "icon.ico"),
+              sizes=[(256, 256), (128, 128), (64, 64), (48, 48), (32, 32),
+                     (16, 16)])
+    print("  wrote icon.png / icon.ico", icon.size)
 
     ui_shot = build_ui_preview(backdrop, (hp_frame, hp_overlay, HP_CAP),
                                 (sp_frame, sp_overlay, SP_CAP), skulls, floor)

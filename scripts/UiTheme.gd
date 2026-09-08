@@ -32,6 +32,10 @@ const CURSOR_GUTTER := 30    # cursor skull + air, left of the entry text
 const PANEL_PAD_X := 12
 const PANEL_PAD_BOTTOM := 12
 const VALUE_GAP := 24        # between an option's name and its value column
+## Row pitch for the dense two-column tables (controls, progress). Ten control
+## rows at 12 ran the panel straight through the footer band; 11 is the most
+## that fits between PANEL_Y and the footer.
+const ROW_STEP := 11
 
 
 ## Panel size for a list of entries, sized to its longest line rather than a
@@ -59,6 +63,9 @@ const CONTROL_ROWS := [
 	["DROP THROUGH", "S + SPACE"],
 	["ATTACK", "J"],
 	["DODGE ROLL", "K"],
+	["SWAP WEAPON", "TAB"],
+	["GUARD", "L"],
+	["USE  TAKE", "E"],
 	["PAUSE", "ESC"],
 ]
 
@@ -66,10 +73,10 @@ const CONTROL_ROWS := [
 ## Centres a panel sized to its contents on `parent`. Returns [origin, size].
 static func add_panel(parent: Node, items: Array, scale_px: int = 2,
 		step: int = MENU_STEP, values: Array = [],
-		min_w: float = 0.0) -> Array:
+		min_w: float = 0.0, top: float = PANEL_Y) -> Array:
 	var size := menu_panel_size(items, scale_px, step, values)
 	size.x = maxf(size.x, min_w)
-	var origin := Vector2(roundf((VIEW.x - size.x) * 0.5), PANEL_Y)
+	var origin := Vector2(roundf((VIEW.x - size.x) * 0.5), top)
 	var p := panel(size)
 	p.position = origin
 	parent.add_child(p)
@@ -78,7 +85,7 @@ static func add_panel(parent: Node, items: Array, scale_px: int = 2,
 
 ## Lays out a name/key table inside a panel: names left, keys right.
 static func add_rows(parent: Node, rows: Array, origin: Vector2,
-		panel_w: float, step: int = 12) -> void:
+		panel_w: float, step: int = ROW_STEP) -> void:
 	for i in rows.size():
 		var y := origin.y + (MENU_Y0 - PANEL_Y) + i * step
 		var name_label := PixelLabel.make(rows[i][0], 1, BONE)
@@ -87,6 +94,29 @@ static func add_rows(parent: Node, rows: Array, origin: Vector2,
 		var key := PixelLabel.make(rows[i][1], 1, EMBER)
 		key.position = Vector2(origin.x + panel_w - PANEL_PAD_X - key.size.x, y)
 		parent.add_child(key)
+
+
+## The footer every menu ends with: a dark band, a hair-line rule, and the key
+## hints. The band is not decoration — without it whatever is behind the menu
+## (the bone heap on the title screen, the HUD's own hint in game) shows through
+## the text and neither is readable.
+static func add_footer(parent: Node, hint: String) -> void:
+	var band := ColorRect.new()
+	band.color = Color(0.02, 0.018, 0.03, 0.90)
+	band.position = Vector2(0, VIEW.y - 17)
+	band.size = Vector2(VIEW.x, 17)
+	band.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	parent.add_child(band)
+
+	var rule := ColorRect.new()
+	rule.color = Color(0.36, 0.33, 0.30, 0.55)
+	rule.position = Vector2(0, VIEW.y - 17)
+	rule.size = Vector2(VIEW.x, 1)
+	parent.add_child(rule)
+
+	var tip := PixelLabel.make(hint, 1, BONE_FAINT)
+	tip.center_on(VIEW.x * 0.5, VIEW.y - 12)
+	parent.add_child(tip)
 
 
 ## A bone-framed box. NinePatchRect keeps the border crisp at any size.
@@ -116,6 +146,15 @@ static func channel_size(frame: Vector2, cap: int) -> Vector2:
 
 static func tex(name: String) -> Texture2D:
 	return load(UI + name) as Texture2D
+
+
+## One frame out of a horizontal sheet anywhere in the project — the weapon
+## icons are world art, not UI art, so they do not live under assets/ui.
+static func frame_tex_from(path: String, index: int, fw: int, fh: int) -> AtlasTexture:
+	var at := AtlasTexture.new()
+	at.atlas = load(path) as Texture2D
+	at.region = Rect2(index * fw, 0, fw, fh)
+	return at
 
 
 ## One frame out of a horizontal sheet (the skull sheet is dim / ember-eyed).

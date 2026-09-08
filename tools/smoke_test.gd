@@ -12,6 +12,7 @@ var _main: Node
 var _player: Player
 var _fails: Array[String] = []
 var _checks := 0
+var _closing := 0
 var _step := 0
 var _phase := 0
 var _phase_frame := -1     # incremented at the top of each step -> first step is 0
@@ -34,9 +35,22 @@ var _hp0 := 0.0
 var _bonfire_pos := Vector2.ZERO
 var _enemies0 := 0
 var _souls_at_death := 0
+var _hp_max0 := 0.0
+var _speed0 := 0.0
+var _bar0 := 0.0
+var _sword_time := 0.0
+var _sword_dmg := 0.0
+var _arrows_seen := 0
+var _guard_hp0 := 0.0
+var _guard_sp0 := 0.0
+var _shield_pickup: Dictionary = {}
+var _weapon0 := 0
 
 
 func _initialize() -> void:
+	# never touch the player's own save file
+	Run.SAVE_PATH = "user://test_save.cfg"
+	Run.delete_save()
 	var packed: PackedScene = load("res://scenes/Main.tscn")
 	_main = packed.instantiate()
 	root.add_child(_main)
@@ -66,6 +80,19 @@ func _ok(label: String, cond: bool, detail: String = "") -> void:
 		_fails.append(line)
 
 
+## Menus listen for raw key events, not the game's input actions, so driving one
+## means pushing a real InputEventKey through the stack.
+func _key(code: int) -> void:
+	var down := InputEventKey.new()
+	down.physical_keycode = code
+	down.pressed = true
+	Input.parse_input_event(down)
+	var up := InputEventKey.new()
+	up.physical_keycode = code
+	up.pressed = false
+	Input.parse_input_event(up)
+
+
 func _press(action: String) -> void:
 	Input.action_press(action)
 
@@ -75,7 +102,8 @@ func _release(action: String) -> void:
 
 
 func _release_all() -> void:
-	for a in ["left", "right", "up", "down", "jump", "attack", "dodge", "heal", "interact"]:
+	for a in ["left", "right", "up", "down", "jump", "attack", "dodge", "heal",
+			"interact", "block", "swap"]:
 		Input.action_release(a)
 
 
@@ -103,9 +131,12 @@ func _physics_process(_delta: float) -> bool:
 		7: _phase_traversal()
 		8: _phase_flask()
 		9: _phase_bonfire()
-		10: _phase_hud()
-		11: _phase_damage_and_death()
-		12: _phase_respawn()
+		10: _phase_level_up()
+		11: _phase_weapons()
+		12: _phase_hud()
+		13: _phase_damage_and_death()
+		14: _phase_respawn()
+		15: _phase_ending()
 		_: return _finish()
 	return false
 
@@ -127,7 +158,7 @@ func _phase_boot() -> void:
 	if _phase_frame >= 40:
 		_ok("player lands on the floor", _player.is_on_floor(),
 				"y=%.1f on_floor=%s" % [_player.global_position.y, _player.is_on_floor()])
-		_ok("player starts at full health", is_equal_approx(_player.health, Player.HEALTH_MAX))
+		_ok("player starts at full health", is_equal_approx(_player.health, _player.health_max))
 		_next()
 
 
@@ -151,7 +182,7 @@ func _phase_move() -> void:
 
 func _phase_attack_costs_stamina() -> void:
 	if _phase_frame == 0:
-		_player.stamina = Player.STAMINA_MAX
+		_player.stamina = _player.stamina_max
 		_stamina0 = _player.stamina
 		_press("attack")
 		return
@@ -160,7 +191,7 @@ func _phase_attack_costs_stamina() -> void:
 		_ok("attack enters ATTACK state", _player.state == Player.State.ATTACK,
 				"state=%d" % _player.state)
 		_ok("attack drains stamina",
-				_player.stamina <= _stamina0 - Player.ATTACK_COST + 0.01,
+				_player.stamina <= _stamina0 - _player.attack_cost() + 0.01,
 				"%.1f -> %.1f" % [_stamina0, _player.stamina])
 		return
 	# ATTACK_TIME is 0.36s -> ~22 physics frames at 60 Hz
@@ -192,7 +223,7 @@ func _phase_attack_hits() -> void:
 		_player.global_position = _hollow.global_position - Vector2(20, 0)
 		_player.velocity = Vector2.ZERO
 		_player.facing = 1
-		_player.stamina = Player.STAMINA_MAX
+		_player.stamina = _player.stamina_max
 		_hollow_hp0 = _hollow.health
 		return
 	if _phase_frame == 3:
@@ -204,7 +235,7 @@ func _phase_attack_hits() -> void:
 	# the strike lands at ATTACK_HIT_AT = 0.15s -> ~9 frames after the press
 	if _phase_frame >= 20:
 		_ok("attack damages a hollow in reach",
-				_hollow.health <= _hollow_hp0 - Player.ATTACK_DAMAGE + 0.01,
+				_hollow.health <= _hollow_hp0 - _player.attack_damage + 0.01,
 				"%.1f -> %.1f" % [_hollow_hp0, _hollow.health])
 		_next()
 
@@ -232,9 +263,9 @@ func _phase_roll_iframes() -> void:
 		# somewhere quiet, so a hollow cannot interrupt the roll
 		_player.global_position = Vector2(72.0, _main.floor_top)
 		_player.velocity = Vector2.ZERO
-		_player.health = Player.HEALTH_MAX
+		_player.health = _player.health_max
 		_player._invuln = 0.0
-		_player.stamina = Player.STAMINA_MAX
+		_player.stamina = _player.stamina_max
 		_stamina0 = _player.stamina
 		return
 	if _phase_frame == 6:
@@ -282,7 +313,7 @@ func _phase_hollow_attack_loop() -> void:
 		# stand just inside its reach, facing it, and do nothing
 		_player.global_position = _hollow.global_position - Vector2(24, 0)
 		_player.velocity = Vector2.ZERO
-		_player.health = Player.HEALTH_MAX
+		_player.health = _player.health_max
 		_player._invuln = 0.0
 		_hollow_hp0 = _player.health
 		return
@@ -324,7 +355,7 @@ func _phase_traversal() -> void:
 		_player.global_position = Vector2((_ladder_tile.x + 0.5) * LevelMap.TILE,
 				float((_ladder_tile.y + 1) * LevelMap.TILE))
 		_player.velocity = Vector2.ZERO
-		_player.health = Player.HEALTH_MAX
+		_player.health = _player.health_max
 		_player._invuln = 0.0
 		return
 	if _phase_frame == 4:
@@ -410,7 +441,7 @@ func _phase_flask() -> void:
 	if _phase_frame == 0:
 		_player.global_position = Vector2(72.0, _main.floor_top)
 		_player.velocity = Vector2.ZERO
-		_player.stamina = Player.STAMINA_MAX
+		_player.stamina = _player.stamina_max
 		_player._invuln = 0.0
 		_player.flask = Player.FLASK_MAX
 		_player.health = 30.0
@@ -447,11 +478,11 @@ func _phase_flask() -> void:
 		_next()
 
 
-## Resting is the structural core: heal, refill, respawn every hollow, and make
-## this fire the place death sends you back to.
+## Resting is the structural core: light the fire, heal, refill, respawn every
+## hollow, and make this fire the place death sends you back to.
 func _phase_bonfire() -> void:
 	if _phase_frame == 0:
-		_bonfire_pos = _main._bonfires[0]
+		_bonfire_pos = _main._bonfires[0]["pos"]
 		_player.global_position = _bonfire_pos
 		_player.velocity = Vector2.ZERO
 		_player.health = 25.0
@@ -461,16 +492,28 @@ func _phase_bonfire() -> void:
 		for i in mini(3, alive.size()):
 			alive[i].queue_free()
 		return
-	if _phase_frame == 4:
+	if _phase_frame == 6:
 		_enemies0 = get_nodes_in_group("enemy").size()
 		_ok("some hollows are dead before resting", _enemies0 < _map_hollows(),
 				"%d of %d" % [_enemies0, _map_hollows()])
+		_ok("the first bonfire starts unlit", not _main._bonfires[0]["lit"])
 		_press("interact")
 		return
 	if _phase_frame == 8:
 		_release_all()
+		_ok("standing at a bonfire and pressing E lights it",
+				_main._bonfires[0]["lit"])
+		_ok("lighting a bonfire is recorded for the whole run",
+				Run.lit_bonfires.size() >= 1)
+		_ok("the bonfire menu opens", _main.bonfire_menu.is_open())
+		return
+	if _phase_frame == 10:
+		_key(KEY_ENTER)                 # REST is the first entry
+		return
+	if _phase_frame == 14:
+		_ok("choosing REST closes the menu", not _main.bonfire_menu.is_open())
 		_ok("resting heals to full",
-				is_equal_approx(_player.health, Player.HEALTH_MAX),
+				is_equal_approx(_player.health, _player.health_max),
 				"health=%.1f" % _player.health)
 		_ok("resting refills the flask", _player.flask == Player.FLASK_MAX,
 				"flask=%d" % _player.flask)
@@ -479,10 +522,278 @@ func _phase_bonfire() -> void:
 				Run.checkpoint.distance_to(_bonfire_pos) < 1.0,
 				"%s vs %s" % [Run.checkpoint, _bonfire_pos])
 		return
-	if _phase_frame >= 12:
+	if _phase_frame >= 20:
 		_ok("resting puts every hollow back",
 				get_nodes_in_group("enemy").size() == _map_hollows(),
 				"%d of %d" % [get_nodes_in_group("enemy").size(), _map_hollows()])
+		_next()
+
+
+## Souls with nothing to spend them on are a score, not progress. Buying a level
+## has to move a real number AND be visible on the HUD in the same instant.
+func _phase_level_up() -> void:
+	if _phase_frame == 0:
+		_player.global_position = _main._bonfires[0]["pos"]
+		_player.velocity = Vector2.ZERO
+		Run.souls = 5000
+		_player.souls = Run.souls
+		_hp_max0 = _player.health_max
+		_speed0 = _player.speed
+		_bar0 = _main.hud._hp_frame.size.x
+		_press("interact")
+		return
+	if _phase_frame == 3:
+		_release_all()
+		_key(KEY_DOWN)                  # LEVEL UP
+		return
+	if _phase_frame == 5:
+		_key(KEY_ENTER)
+		return
+	if _phase_frame == 7:
+		_ok("the bonfire offers a level-up page",
+				_main.bonfire_menu._screen == 1,
+				"screen=%d" % _main.bonfire_menu._screen)
+		_ok("there is a stat for each thing you can raise",
+				Run.STAT_NAMES.size() == 5, "%d stats" % Run.STAT_NAMES.size())
+		_souls0 = Run.souls
+		_key(KEY_ENTER)                 # VIGOR is the first row
+		return
+	if _phase_frame == 10:
+		_ok("buying a point raises the stat", Run.stats[Run.VIGOR] == 1,
+				"vigor=%d" % Run.stats[Run.VIGOR])
+		_ok("buying a point spends souls", Run.souls < _souls0,
+				"%d -> %d" % [_souls0, Run.souls])
+		_ok("VIGOR raises maximum health", _player.health_max > _hp_max0,
+				"%.0f -> %.0f" % [_hp_max0, _player.health_max])
+		_ok("the health bar physically grows", _main.hud._hp_frame.size.x > _bar0,
+				"%.0f -> %.0f px" % [_bar0, _main.hud._hp_frame.size.x])
+		# now a stat with no bar: AGILITY must still be felt
+		_key(KEY_DOWN)
+		_key(KEY_DOWN)
+		return
+	if _phase_frame == 13:
+		_key(KEY_ENTER)                 # AGILITY
+		return
+	if _phase_frame == 16:
+		_ok("AGILITY raises move speed", _player.speed > _speed0,
+				"%.0f -> %.0f" % [_speed0, _player.speed])
+		_ok("the level counter follows the points spent", Run.level() == 3,
+				"level=%d" % Run.level())
+		_key(KEY_ESCAPE)
+		return
+	if _phase_frame == 19:
+		_key(KEY_ESCAPE)
+		return
+	if _phase_frame >= 24:
+		_ok("leaving the bonfire unpauses the game", not paused)
+		_next()
+
+
+## Six weapons that all played the same would be six names. These checks are
+## about the DIFFERENCES — reach, damage, swing time, stamina — plus the two
+## that do not swing at all and the one that can say no.
+func _phase_weapons() -> void:
+	if _phase_frame == 0:
+		_release_all()
+		_sword_time = _player.attack_time
+		_sword_dmg = _player.swing_damage()
+		_ok("the armoury describes six weapons", Weapons.DEFS.size() == 6,
+				"%d weapons" % Weapons.DEFS.size())
+		_ok("the run starts on the longsword", Run.weapon == Weapons.SWORD,
+				"weapon=%d" % Run.weapon)
+
+		# every weapon but the starting blade has to be somewhere you can reach;
+		# the level generator proves reachability, this proves they were PLACED
+		var placed := {}
+		for e in LevelMap.ENTITIES:
+			if e["kind"] == "weapon":
+				placed[e["weapon"]] = true
+		var missing: Array = []
+		for d in Weapons.DEFS:
+			if d["id"] != Weapons.START and not placed.has(d["id"]):
+				missing.append(d["id"])
+		_ok("every other weapon lies somewhere in the keep", missing.is_empty(),
+				"missing %s" % str(missing))
+		# --- the world's dressing, checked from the map rather than by eye ---
+		_ok("every tile row carries a stone theme",
+				LevelMap.THEME_OF.size() == LevelMap.H
+				and (LevelMap.THEME_OF[0] as String).length() == LevelMap.W,
+				"%d rows" % LevelMap.THEME_OF.size())
+		var themed := {}
+		for row in LevelMap.THEME_OF:
+			for i in (row as String).length():
+				themed[(row as String)[i]] = true
+		_ok("every region's stone is actually cut somewhere",
+				themed.size() == LevelMap.AREAS.size(),
+				"%d of %d themes used" % [themed.size(), LevelMap.AREAS.size()])
+		var dressed := {}
+		for e in LevelMap.ENTITIES:
+			if e["kind"] == "deco":
+				dressed[_main.level.theme_name_at(Vector2(
+						(int(e["x"]) + 0.5) * LevelMap.TILE,
+						(int(e["y"]) + 0.5) * LevelMap.TILE))] = true
+		_ok("every region is dressed with props",
+				dressed.size() == LevelMap.AREAS.size(),
+				"%d of %d regions have deco" % [dressed.size(), LevelMap.AREAS.size()])
+
+		_ok("the level builds a pickup for each of them",
+				_main._pickups.size() == Weapons.DEFS.size() - 1,
+				"%d pickups" % _main._pickups.size())
+
+		# walk onto the shield and take it, the way a player would
+		for p in _main._pickups:
+			if p["id"] == "shield":
+				_shield_pickup = p
+		_ok("the shield is one of them", not _shield_pickup.is_empty())
+		if _shield_pickup.is_empty():
+			_next()
+			return
+		_player.global_position = _shield_pickup["pos"] + Vector2(0, 8)
+		_player.velocity = Vector2.ZERO
+		_press("interact")
+		return
+
+	if _phase_frame == 3:
+		_release_all()
+		_ok("picking a weapon up adds it to the armoury", Run.has_weapon("shield"))
+		_ok("picking a weapon up equips it on the spot",
+				Run.weapon == Weapons.SHIELD, "weapon=%d" % Run.weapon)
+		_ok("the pickup is gone once taken",
+				not is_instance_valid(_shield_pickup["node"]))
+		_ok("the HUD names what he is holding",
+				_main.hud._weapon.text == Weapons.name_of(Weapons.SHIELD),
+				_main.hud._weapon.text)
+		_ok("the shield brings a guard animation with it",
+				_player.sprite.sprite_frames.has_animation("block"))
+
+		_player.global_position = Vector2(72.0, _main.floor_top)
+		_player.velocity = Vector2.ZERO
+		_player.health = _player.health_max
+		_player.stamina = _player.stamina_max
+		_player._invuln = 0.0
+		return
+
+	if _phase_frame == 5:
+		Run.weapons["axe"] = true
+		_ok("equipping a found weapon takes", _player.equip(Weapons.AXE))
+		return
+
+	if _phase_frame == 6:
+		_ok("the axe hits harder than the sword",
+				_player.swing_damage() > _sword_dmg,
+				"%.0f -> %.0f" % [_sword_dmg, _player.swing_damage()])
+		_ok("the axe swings slower than the sword",
+				_player.attack_time > _sword_time,
+				"%.2fs -> %.2fs" % [_sword_time, _player.attack_time])
+		_ok("the axe costs more stamina than the sword",
+				_player.attack_cost() > float(Weapons.def(Weapons.SWORD)["stamina"]),
+				"%.0f" % _player.attack_cost())
+		Run.weapons["spear"] = true
+		_player.equip(Weapons.SPEAR)
+		return
+
+	if _phase_frame == 7:
+		_ok("the spear reaches further than the sword",
+				float(_player.weapon()["reach"]) > Player.ATTACK_REACH,
+				"%.0f px" % float(_player.weapon()["reach"]))
+		_ok("the spear pays for that reach in damage",
+				_player.swing_damage() < _sword_dmg,
+				"%.0f vs %.0f" % [_player.swing_damage(), _sword_dmg])
+
+		# --- the bow: a weapon that never touches anything ---
+		Run.weapons["bow"] = true
+		_player.equip(Weapons.BOW)
+		_player.stamina = _player.stamina_max
+		_player.facing = 1
+		_hollow = _main._spawn_hollow(Vector2(_player.global_position.x + 74.0,
+				_main.floor_top))
+		_hollow_hp0 = _hollow.health
+		_press("attack")
+		return
+
+	if _phase_frame == 9:
+		_release("attack")
+		return
+
+	if _phase_frame == 22:
+		for c in _main.get_children():
+			if c is Projectile:
+				_arrows_seen += 1
+		return
+
+	if _phase_frame == 55:
+		_ok("the bow puts an arrow in the world", _arrows_seen > 0,
+				"%d arrows" % _arrows_seen)
+		_ok("an arrow damages what it hits",
+				is_instance_valid(_hollow) and _hollow.health < _hollow_hp0,
+				"%.1f -> %.1f" % [_hollow_hp0,
+						_hollow.health if is_instance_valid(_hollow) else -1.0])
+		if is_instance_valid(_hollow):
+			_hollow.queue_free()
+
+		# --- the shield: the only weapon that can refuse a hit ---
+		_player.equip(Weapons.SHIELD)
+		_player.global_position = Vector2(72.0, _main.floor_top)
+		_player.velocity = Vector2.ZERO
+		_player.health = _player.health_max
+		_player.stamina = _player.stamina_max
+		_player._invuln = 0.0
+		_player.facing = 1
+		_press("block")
+		return
+
+	if _phase_frame == 58:
+		_ok("holding L raises the shield",
+				_player.state == Player.State.BLOCK, "state=%d" % _player.state)
+		_guard_hp0 = _player.health
+		_guard_sp0 = _player.stamina
+		_player.take_damage(Hollow.DAMAGE,
+				_player.global_position + Vector2(30, 0))
+		return
+
+	if _phase_frame == 59:
+		_ok("a guarded blow costs far less health",
+				_player.health > _guard_hp0 - Hollow.DAMAGE * 0.5,
+				"%.1f -> %.1f" % [_guard_hp0, _player.health])
+		_ok("a guarded blow costs stamina instead",
+				_player.stamina < _guard_sp0,
+				"%.1f -> %.1f" % [_guard_sp0, _player.stamina])
+		# a hit from BEHIND the shield is not a hit the shield stops
+		_player._invuln = 0.0
+		_guard_hp0 = _player.health
+		_player.stamina = 4.0
+		_player.take_damage(Hollow.DAMAGE,
+				_player.global_position + Vector2(30, 0))
+		return
+
+	if _phase_frame == 60:
+		_ok("running the stamina out breaks the guard",
+				_player.health <= _guard_hp0 - Hollow.DAMAGE + 0.01,
+				"%.1f -> %.1f" % [_guard_hp0, _player.health])
+		_release_all()
+		_weapon0 = Run.weapon
+		return
+
+	# the broken guard staggers him for HURT_TIME; he cannot swap out of that,
+	# which is the point of it, so wait him out first
+	if _phase_frame == 82:
+		_press("swap")
+		return
+
+	if _phase_frame == 84:
+		_release_all()
+		_ok("TAB swaps to another weapon he owns", Run.weapon != _weapon0,
+				"weapon=%d" % Run.weapon)
+		_ok("swapping never lands on a weapon he has not found",
+				Run.has_weapon(Weapons.DEFS[Run.weapon]["id"]))
+		return
+
+	if _phase_frame >= 88:
+		# leave the following phases on the baseline blade
+		_player.equip(Weapons.SWORD)
+		_player.health = _player.health_max
+		_player.stamina = _player.stamina_max
+		_player._invuln = 0.0
 		_next()
 
 
@@ -497,8 +808,8 @@ func _phase_hud() -> void:
 		# would overwrite the values this phase is asserting on.
 		_player.global_position = Vector2(72.0, _main.floor_top)
 		_player.velocity = Vector2.ZERO
-		_player.health = Player.HEALTH_MAX
-		_player.stamina = Player.STAMINA_MAX
+		_player.health = _player.health_max
+		_player.stamina = _player.stamina_max
 		_player._invuln = 0.0
 		_ok("the health fill draws on top of its bone frame",
 				hud._hp_fill.get_index() > hud._hp_frame.get_index(),
@@ -506,8 +817,14 @@ func _phase_hud() -> void:
 		_ok("the stamina fill draws on top of its bone frame",
 				hud._st_fill.get_index() > hud._sp_frame.get_index(),
 				"frame=%d fill=%d" % [hud._sp_frame.get_index(), hud._st_fill.get_index()])
+		# the channel widens as VIGOR is bought, so compare against the CURRENT
+		# channel rather than the base constant
 		_ok("the fill sits inside the frame's channel",
-				hud._hp_fill.size.x <= UiTheme.HP_FRAME.x - UiTheme.HP_CAP * 2 + 0.01)
+				hud._hp_fill.size.x <= hud._hp_channel.x + 0.01,
+				"%.1f in %.1f" % [hud._hp_fill.size.x, hud._hp_channel.x])
+		_ok("the frame is wider than its channel by both fang caps",
+				is_equal_approx(hud._hp_frame.size.x,
+						hud._hp_channel.x + UiTheme.HP_CAP * 2))
 		hud.set_health(100.0, 100.0)
 		hud.set_stamina(100.0, 100.0)
 		return
@@ -543,21 +860,21 @@ func _phase_hud() -> void:
 				"ghost=%.1f fill=%.1f" % [hud._hp_ghost.size.x, hud._hp_fill.size.x])
 		# hand the bars back to the player's real values (the signals are already
 		# connected — reconnecting them here would just error)
-		hud.set_health(_player.health, Player.HEALTH_MAX)
-		hud.set_stamina(_player.stamina, Player.STAMINA_MAX)
+		hud.set_health(_player.health, _player.health_max)
+		hud.set_stamina(_player.stamina, _player.stamina_max)
 		_next()
 
 
 func _phase_damage_and_death() -> void:
 	if _phase_frame == 0:
 		_player.died.connect(func() -> void: _died = true)
-		_player.health = Player.HEALTH_MAX
+		_player.health = _player.health_max
 		_player._invuln = 0.0
 		_player.take_damage(30.0, _player.global_position + Vector2(20, 0))
 		return
 	if _phase_frame == 1:
 		_ok("taking damage reduces health",
-				is_equal_approx(_player.health, Player.HEALTH_MAX - 30.0),
+				is_equal_approx(_player.health, _player.health_max - 30.0),
 				"health=%.1f" % _player.health)
 		_ok("a hit grants brief invulnerability", _player.is_invulnerable())
 		# a second hit during i-frames must be ignored
@@ -565,7 +882,7 @@ func _phase_damage_and_death() -> void:
 		return
 	if _phase_frame == 2:
 		_ok("i-frames block a follow-up hit",
-				is_equal_approx(_player.health, Player.HEALTH_MAX - 30.0),
+				is_equal_approx(_player.health, _player.health_max - 30.0),
 				"health=%.1f" % _player.health)
 		_player._invuln = 0.0
 		_player.add_souls(500)
@@ -601,7 +918,7 @@ func _phase_respawn() -> void:
 			fresh.player != null and is_instance_valid(fresh.player))
 	if fresh.player != null and is_instance_valid(fresh.player):
 		_ok("the respawned player is back at full health",
-				is_equal_approx(fresh.player.health, Player.HEALTH_MAX),
+				is_equal_approx(fresh.player.health, fresh.player.health_max),
 				"health=%.1f" % fresh.player.health)
 		_ok("the respawned player is alive", fresh.player.state != Player.State.DEAD)
 	_ok("death returns him to the bonfire, not the start",
@@ -615,7 +932,61 @@ func _phase_respawn() -> void:
 	_next()
 
 
+## The end of the route. There is no boss: the last inscription sits above the
+## gate you came in through, and reading it ends the run.
+func _phase_ending() -> void:
+	var main = current_scene
+	if _phase_frame == 0:
+		_release_all()
+		var final_tile := Vector2i(-1, -1)
+		for e in LevelMap.ENTITIES:
+			if e["kind"] == "rune" and int(e.get("final", 0)) == 1:
+				final_tile = Vector2i(int(e["x"]), int(e["y"]))
+		_ok("the map marks one inscription as the last one",
+				final_tile.x >= 0, "tile=%s" % str(final_tile))
+		if final_tile.x < 0:
+			_next()
+			return
+		_ok("the run is not over before it is",
+				not Run.finished)
+		main.player.global_position = Vector2((final_tile.x + 0.5) * LevelMap.TILE,
+				float((final_tile.y + 1) * LevelMap.TILE))
+		main.player.velocity = Vector2.ZERO
+		return
+	if _phase_frame == 6:
+		_ok("reading the last stone ends the run", Run.finished)
+		_ok("the epilogue comes up", main._ending != null
+				and is_instance_valid(main._ending))
+		_ok("and it freezes the keep behind it", paused)
+		_ok("the ending is saved, so the title screen knows",
+				Run.has_save())
+		paused = false                   # so the closing frames still run
+		_next()
+		return
+
+
 func _finish() -> bool:
+	# Two beats of grace before quitting: Audio.shutdown() stops every voice,
+	# but the audio server only releases a stopped playback on its next mix, and
+	# a stream still held at exit is reported as a leaked resource — which this
+	# runner treats as a failure, correctly.
+	_closing += 1
+	if _closing == 1:
+		Audio.shutdown()
+		return false
+	# The audio node is freed at the end of the frame shutdown() ran on, and the
+	# audio server only lets go of a stream once its player is really gone. Ten
+	# frames of grace makes that deterministic; at three it passed about half
+	# the time and reported leaked resources on the rest.
+	if _closing < 12:
+		return false
+
+	# Anything the game actually DREW with a glyph the font does not have. This
+	# catches strings assembled at runtime — "EXPLORED 61%" and the like — that
+	# no list of literals in a test could ever cover.
+	_ok("every string drawn during the run was renderable",
+			PixelLabel.missing_glyphs.is_empty(),
+			"missing glyphs: %s" % str(PixelLabel.missing_glyphs.keys()))
 	print("")
 	if _fails.is_empty():
 		print("PASS — %d checks" % _checks)
