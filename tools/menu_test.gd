@@ -131,6 +131,7 @@ func _phase_boot() -> void:
 func _unrenderable() -> String:
 	var strings: Array = []
 	strings.append_array(MainMenu.BASE_ITEMS)
+	strings.append_array(MainMenu.CREDIT_LINES)
 	strings.append_array(MainMenu.CONFIRM_ITEMS)
 	strings.append("CONTINUE")
 	strings.append_array(OptionsMenu.ROOT_ITEMS)
@@ -483,7 +484,11 @@ func _finish() -> bool:
 	if _closing == 1:
 		Audio.shutdown()
 		return false
-	if _closing < 4:
+	# The audio node is freed at the end of the frame shutdown() ran on, and the
+	# audio server only lets go of a stream once its player is really gone. Ten
+	# frames of grace makes that deterministic; at three it passed about half
+	# the time and reported leaked resources on the rest.
+	if _closing < 12:
 		return false
 
 	# Anything the game actually DREW with a glyph the font does not have. This

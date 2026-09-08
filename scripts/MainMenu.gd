@@ -10,12 +10,28 @@ extends Node2D
 ## Three screens share one input handler and one panel style: MAIN, CONTROLS and
 ## OPTIONS. Only one is visible at a time.
 
-enum Screen { MAIN, CONTROLS, OPTIONS, CONFIRM }
+enum Screen { MAIN, CONTROLS, OPTIONS, CONFIRM, CREDITS }
 
 ## CONTINUE only appears when there is something to continue, so a first launch
 ## is not asking the player to choose between two things one of which does
 ## nothing.
-const BASE_ITEMS := ["NEW GAME", "CONTROLS", "OPTIONS", "QUIT"]
+const BASE_ITEMS := ["NEW GAME", "CONTROLS", "OPTIONS", "CREDITS", "QUIT"]
+
+## Deliberately about the project rather than about people: everything here is
+## the output of a generator in this repository, and saying so is the credit.
+const CREDIT_LINES := [
+	"EVERY PIXEL AND EVERY SOUND IN THIS GAME",
+	"WAS GENERATED FROM CODE.",
+	"",
+	"ART        TOOLS/GEN-ART.PY",
+	"LEVEL      TOOLS/GEN-LEVEL.PY",
+	"SOUND      TOOLS/GEN-AUDIO.PY",
+	"",
+	"THE LEVEL IS PROVED WALKABLE BEFORE IT SHIPS.",
+	"",
+	"ENGINE     GODOT 4, MIT LICENSED",
+	"GODOTENGINE.ORG",
+]
 const CONFIRM_ITEMS := ["NO. GO BACK", "YES. START OVER"]
 
 var items: Array = []
@@ -42,6 +58,7 @@ func _ready() -> void:
 	_build_scene()
 	_pages[Screen.MAIN] = _build_main_page()
 	_pages[Screen.CONFIRM] = _build_confirm_page()
+	_pages[Screen.CREDITS] = _build_credits_page()
 	_pages[Screen.CONTROLS] = _build_controls_page()
 	_pages[Screen.OPTIONS] = _build_options_page()
 	_options.closed.connect(func() -> void: _show(Screen.MAIN))
@@ -190,6 +207,20 @@ func _build_controls_page() -> CanvasLayer:
 	return layer
 
 
+func _build_credits_page() -> CanvasLayer:
+	var layer := _page("CREDITS", 3, "ESC  BACK")
+	var y := 62
+	for line in CREDIT_LINES:
+		if not (line as String).is_empty():
+			var l := PixelLabel.make(line, 1,
+					UiTheme.BONE if line.begins_with("EVERY") or line.begins_with("WAS")
+							else UiTheme.BONE_DIM)
+			l.center_on(UiTheme.VIEW.x * 0.5, y)
+			layer.add_child(l)
+		y += 10
+	return layer
+
+
 func _build_options_page() -> CanvasLayer:
 	# The whole settings screen is one widget shared with the pause menu, so the
 	# title screen and the in-game screen cannot drift apart.
@@ -220,7 +251,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			_input_list(k, _menu)
 		Screen.OPTIONS:
 			_options.handle_key(k)
-		Screen.CONTROLS:
+		Screen.CONTROLS, Screen.CREDITS:
 			if k.physical_keycode in [KEY_ESCAPE, KEY_ENTER, KEY_KP_ENTER, KEY_SPACE]:
 				_show(Screen.MAIN)
 		Screen.CONFIRM:
@@ -259,6 +290,8 @@ func _on_main_activated(idx: int) -> void:
 			_show(Screen.CONTROLS)
 		"OPTIONS":
 			_show(Screen.OPTIONS)
+		"CREDITS":
+			_show(Screen.CREDITS)
 		"QUIT":
 			get_tree().quit()
 

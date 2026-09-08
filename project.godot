@@ -1,15 +1,16 @@
-; Engine configuration file — Ashen Hollow (2D soulslike, pixel art)
-; Godot 4.x.  Opens straight into the mood scene.
+; Engine configuration file - Ashen Hollow (2D souls-like, pixel art)
+; Godot 4.3+. Opens on the title screen.
 
 config_version=5
 
 [application]
 
 config/name="Ashen Hollow"
-config/description="A 2D soulslike in dark pixel art. Art-first vertical slice."
+config/description="A 2D souls-like in dark retro pixel art. Eight themed regions, six weapons that play nothing like each other, bonfires and souls you drop where you fall - with every pixel and every sound generated from code."
+config/version="1.0.0"
 run/main_scene="res://scenes/MainMenu.tscn"
 config/features=PackedStringArray("4.3", "GL Compatibility")
-config/icon="res://icon.svg"
+config/icon="res://icon.png"
 
 [display]
 
@@ -19,10 +20,14 @@ window/size/window_width_override=1152
 window/size/window_height_override=648
 window/stretch/mode="viewport"
 window/stretch/aspect="keep"
+window/size/resizable=true
 
 [rendering]
 
 renderer/rendering_method="gl_compatibility"
+; Required by the macOS universal/arm64 export even though nothing here is VRAM
+; compressed: every texture is lossless pixel art with nearest filtering.
+textures/vram_compression/import_etc2_astc=true
 renderer/rendering_method.mobile="gl_compatibility"
 textures/canvas_textures/default_texture_filter=0
 2d/snap/snap_2d_transforms_to_pixel=true

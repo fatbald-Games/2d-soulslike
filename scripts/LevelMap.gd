@@ -607,5 +607,5 @@ const ENTITIES := [
 	{"kind": "rune", "x": 250, "y": 26, "text": "THE ASH ON THIS WALL IS NOT FROM THE FORGE."},
 	{"kind": "rune", "x": 180, "y": 26, "text": "I WALKED THIS WALL EVERY NIGHT. IT HELPED, FOR A WHILE."},
 	{"kind": "rune", "x": 112, "y": 26, "text": "THE GATE AHEAD OPENS FROM THE OTHER SIDE. NOTHING HERE DOES."},
-	{"kind": "rune", "x": 96, "y": 26, "text": "YOU CAME IN THROUGH THAT GATE. SO DID I."},
+	{"kind": "rune", "x": 96, "y": 26, "text": "YOU CAME IN THROUGH THAT GATE. SO DID I.", "final": 1},
 ]

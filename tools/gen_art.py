@@ -1576,6 +1576,56 @@ def big_skull(w=112, h=104):
     return img
 
 
+def game_icon(size=256):
+    """The application icon: the skull, ember-eyed, on dark stone.
+
+    Drawn at 256 and left unfiltered — it is the one piece of art here that gets
+    seen at a size the game never runs at (a store page, a task bar), so it uses
+    the big skull's real geometry rather than an upscaled 11px sprite.
+    """
+    img = Image.new("RGBA", (size, size), (14, 12, 18, 255))
+    px = img.load()
+    rng = random.Random(31337)
+    # a stone ground with a little grain, so the icon is not a flat swatch
+    for y in range(size):
+        for x in range(size):
+            v = rng.randint(-5, 5)
+            px[x, y] = (max(0, 14 + v), max(0, 12 + v), max(0, 20 + v), 255)
+
+    sk = big_skull(int(size * 0.78), int(size * 0.72))
+    # Embers banked in the sockets rather than filling them: only the lower part
+    # of each glows, and it fades upward. A fully lit socket reads as a lens,
+    # not as something burning inside a skull.
+    spx = sk.load()
+    sw, sh = sk.width, sk.height
+    for sgn in (-1, 1):
+        ex = sw / 2.0 + sgn * sw * 0.185
+        ey, rx, ry = sh * 0.42, sw * 0.135, sh * 0.115
+        for y in range(int(ey - ry) - 1, int(ey + ry) + 2):
+            for x in range(int(ex - rx) - 1, int(ex + rx) + 2):
+                if not (0 <= x < sw and 0 <= y < sh):
+                    continue
+                if ((x - ex) / rx) ** 2 + ((y - ey) / ry) ** 2 > 1.0:
+                    continue
+                t = (y - (ey - ry)) / (2.0 * ry)      # 0 top, 1 bottom
+                glow = max(0.0, (t - 0.30) / 0.70) ** 1.4
+                if glow <= 0.02:
+                    continue
+                spx[x, y] = (int(28 + 200 * glow), int(14 + 66 * glow),
+                             int(16 + 20 * glow), 255)
+    img.alpha_composite(sk, ((size - sk.width) // 2, int(size * 0.16)))
+
+    # vignette, matching the one the game itself draws
+    cx = cy = size / 2.0
+    for y in range(size):
+        for x in range(size):
+            d = (((x - cx) / cx) ** 2 + ((y - cy) / cy) ** 2) ** 0.5
+            f = max(0.25, 1.0 - 0.85 * max(0.0, d - 0.25) ** 1.4)
+            r, g, b, a = px[x, y]
+            px[x, y] = (int(r * f), int(g * f), int(b * f), a)
+    return img
+
+
 def menu_backdrop(wall, floor, w=384, h=216):
     """The crypt the menu sits in: dim stonework, a bone pile, a skull looming
     out of the dark, and a heavy vignette so the title reads."""
@@ -2115,6 +2165,16 @@ def main():
     save_ui(sp_overlay, "bar_overlay_sp.png")
     backdrop = menu_backdrop(wall, floor)
     save_ui(backdrop, "menu_bg.png")
+
+    # the application icon lives at the project root, where Godot expects it
+    icon = game_icon()
+    icon.save(os.path.join(ROOT, "icon.png"))
+    # Windows wants a real .ico for the executable; Godot's exporter takes the
+    # path straight from export_presets.cfg
+    icon.save(os.path.join(ROOT, "icon.ico"),
+              sizes=[(256, 256), (128, 128), (64, 64), (48, 48), (32, 32),
+                     (16, 16)])
+    print("  wrote icon.png / icon.ico", icon.size)
 
     ui_shot = build_ui_preview(backdrop, (hp_frame, hp_overlay, HP_CAP),
                                 (sp_frame, sp_overlay, SP_CAP), skulls, floor)

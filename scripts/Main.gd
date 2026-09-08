@@ -64,6 +64,7 @@ var _near_bonfire: Dictionary = {}
 var _camera: Camera2D
 var _shake := 0.0
 var _sparks: CPUParticles2D
+var _ending: CanvasLayer             # the epilogue, once the last stone is read
 var _motes: CPUParticles2D           # the region's airborne dust, ash or embers
 var _dust: CPUParticles2D            # kicked up where he lands
 var _t := 0.0
@@ -134,7 +135,8 @@ func _spawn_entities() -> void:
 				_glow_prop("brazier.png", 9, 9, foot + Vector2(0, -5),
 						Color(1.0, 0.52, 0.20), 1.5, 0.85)
 			"rune":
-				_rune(foot, e["text"], Run.key(tx, ty))
+				_rune(foot, e["text"], Run.key(tx, ty),
+						int(e.get("final", 0)) == 1)
 			"weapon":
 				_weapon_pickup(foot, e["weapon"])
 			"deco":
@@ -228,12 +230,13 @@ func _glow_prop(sheet: String, fw: int, fh: int, pos: Vector2,
 
 ## An inscribed stone. It lights up and shows its line when you stand on it —
 ## the only storytelling in the game, so it has to be readable in passing.
-func _rune(foot: Vector2, text: String, key: String) -> void:
+func _rune(foot: Vector2, text: String, key: String, final: bool) -> void:
 	var s := Sprite2D.new()
 	s.texture = SpriteUtil.frame_of(_tex("rune.png"), 0, 7, 7)
 	s.position = foot + Vector2(0, -5)
 	add_child(s)
-	_runes.append({"node": s, "pos": s.position, "text": text, "key": key})
+	_runes.append({"node": s, "pos": s.position, "text": text, "key": key,
+			"final": final})
 
 
 ## A weapon lying where its owner dropped it. Not a chest and not a shop: you
@@ -491,7 +494,23 @@ func _build_pause_menu() -> CanvasLayer:
 	return p
 
 
+## The end of the route. There is no boss: the last stone sits above the gate
+## you walked in through, and reading it is the ending.
+func _finish_run() -> void:
+	if _ending != null:
+		return
+	Run.finished = true
+	Run.save_game()
+	Audio.play("victory", 0.0)
+	Audio.stop_music()
+	_ending = load("res://scripts/EndScreen.gd").new()
+	add_child(_ending)
+	_ending.dismissed.connect(_on_quit_to_menu)
+	get_tree().paused = true
+
+
 func _on_quit_to_menu() -> void:
+	get_tree().paused = false
 	Run.save_game()
 	get_tree().change_scene_to_file("res://scenes/MainMenu.tscn")
 
@@ -855,5 +874,7 @@ func _track_runes() -> void:
 		var close := d < RUNE_READ_RANGE
 		if close and Run.read_rune(r["key"]):
 			Audio.play("rune", 0.02)
+			if bool(r["final"]):
+				_finish_run()
 		s.texture = SpriteUtil.frame_of(_tex("rune.png"), 1 if close else 0, 7, 7)
 	hud.show_inscription(nearest)

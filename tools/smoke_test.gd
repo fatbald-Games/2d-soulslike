@@ -136,6 +136,7 @@ func _physics_process(_delta: float) -> bool:
 		12: _phase_hud()
 		13: _phase_damage_and_death()
 		14: _phase_respawn()
+		15: _phase_ending()
 		_: return _finish()
 	return false
 
@@ -931,6 +932,39 @@ func _phase_respawn() -> void:
 	_next()
 
 
+## The end of the route. There is no boss: the last inscription sits above the
+## gate you came in through, and reading it ends the run.
+func _phase_ending() -> void:
+	var main = current_scene
+	if _phase_frame == 0:
+		_release_all()
+		var final_tile := Vector2i(-1, -1)
+		for e in LevelMap.ENTITIES:
+			if e["kind"] == "rune" and int(e.get("final", 0)) == 1:
+				final_tile = Vector2i(int(e["x"]), int(e["y"]))
+		_ok("the map marks one inscription as the last one",
+				final_tile.x >= 0, "tile=%s" % str(final_tile))
+		if final_tile.x < 0:
+			_next()
+			return
+		_ok("the run is not over before it is",
+				not Run.finished)
+		main.player.global_position = Vector2((final_tile.x + 0.5) * LevelMap.TILE,
+				float((final_tile.y + 1) * LevelMap.TILE))
+		main.player.velocity = Vector2.ZERO
+		return
+	if _phase_frame == 6:
+		_ok("reading the last stone ends the run", Run.finished)
+		_ok("the epilogue comes up", main._ending != null
+				and is_instance_valid(main._ending))
+		_ok("and it freezes the keep behind it", paused)
+		_ok("the ending is saved, so the title screen knows",
+				Run.has_save())
+		paused = false                   # so the closing frames still run
+		_next()
+		return
+
+
 func _finish() -> bool:
 	# Two beats of grace before quitting: Audio.shutdown() stops every voice,
 	# but the audio server only releases a stopped playback on its next mix, and
@@ -940,7 +974,11 @@ func _finish() -> bool:
 	if _closing == 1:
 		Audio.shutdown()
 		return false
-	if _closing < 4:
+	# The audio node is freed at the end of the frame shutdown() ran on, and the
+	# audio server only lets go of a stream once its player is really gone. Ten
+	# frames of grace makes that deterministic; at three it passed about half
+	# the time and reported leaked resources on the rest.
+	if _closing < 12:
 		return false
 
 	# Anything the game actually DREW with a glyph the font does not have. This

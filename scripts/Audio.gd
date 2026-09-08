@@ -81,8 +81,12 @@ func _ready() -> void:
 ## The stream cache is static, so it outlives the tree unless it is emptied
 ## here — otherwise the engine reports leaked resources at exit, which the test
 ## runner (rightly) treats as a failure.
+## The tree is tearing us down: release the streams, but reparent nothing — the
+## parent is mid-removal at this point and says so, loudly.
 func _exit_tree() -> void:
-	shutdown()
+	_closed = true
+	_release()
+	_cache.clear()
 
 
 ## Stop everything and drop every cached stream. A player that is still PLAYING
@@ -92,25 +96,37 @@ func _exit_tree() -> void:
 static func shutdown() -> void:
 	_closed = true
 	if _me != null and is_instance_valid(_me):
-		# Stopping is not enough: the audio server keeps a playback alive until
-		# its next mix, and under the headless dummy driver that mix may never
-		# come. Freeing the player destroys the playback outright, which is what
-		# actually lets go of the stream.
-		var all: Array = _me._voices.duplicate()
-		all.append_array([_me._music, _me._music_b, _me._ambience, _me._ambience_b])
-		for p in all:
-			if p != null and is_instance_valid(p):
-				p.stop()
-				p.stream = null
-				p.queue_free()
-		_me._voices.clear()
-		_me._music = null
-		_me._music_b = null
-		_me._ambience = null
-		_me._ambience_b = null
-		_me._music_now = ""
-		_me._ambience_now = ""
+		_me._release()
+		# free() rather than queue_free(): the audio server only lets go of a
+		# stopped playback when the player is actually gone, and waiting a few
+		# frames for that made the leak check pass about half the time. Taking
+		# the node out of the tree and freeing it here makes it deterministic.
+		# queue_free() rather than free(): shutdown can be called from a frame
+		# on which the tree is mid scene-swap, and reparenting anything then is
+		# an error. The node is gone by the end of the frame either way, and
+		# that is what finally makes the audio server let go of the streams.
+		_me.queue_free()
+	_me = null
 	_cache.clear()
+
+
+## Silence every voice and drop its stream. Safe at any time; frees nothing, so
+## it is also what runs from _exit_tree, where the parent is mid-removal and
+## reparenting anything is an error.
+func _release() -> void:
+	var all: Array = _voices.duplicate()
+	all.append_array([_music, _music_b, _ambience, _ambience_b])
+	for p in all:
+		if p != null and is_instance_valid(p):
+			p.stop()
+			p.stream = null
+	_voices.clear()
+	_music = null
+	_music_b = null
+	_ambience = null
+	_ambience_b = null
+	_music_now = ""
+	_ambience_now = ""
 
 
 func _loop_player(bus: String) -> AudioStreamPlayer:

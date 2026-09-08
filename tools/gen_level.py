@@ -355,8 +355,10 @@ def build():
     L.ent("rune", 180, 26, text="I WALKED THIS WALL EVERY NIGHT. IT HELPED, FOR A WHILE.")
     L.ent("rune", 112, 26,
           text="THE GATE AHEAD OPENS FROM THE OTHER SIDE. NOTHING HERE DOES.")
-    # the last stone on the route, and the only one that is about you
-    L.ent("rune", 96, 26, text="YOU CAME IN THROUGH THAT GATE. SO DID I.")
+    # The last stone on the route, and the only one that is about you. Reading
+    # it ends the run - marked here rather than hard-coded in Main, so moving it
+    # moves the ending with it.
+    L.ent("rune", 96, 26, text="YOU CAME IN THROUGH THAT GATE. SO DID I.", final=1)
     return L
 
 
@@ -597,6 +599,8 @@ def emit(L, solids, plats):
             parts.append('"text": %s' % q(e["text"]))
         if "weapon" in e:
             parts.append('"weapon": %s' % q(e["weapon"]))
+        if "final" in e:
+            parts.append('"final": %d' % e["final"])
         if "deco" in e:
             parts.append('"deco": %s' % q(e["deco"]))
             parts.append('"stand": %d' % e.get("stand", 0))
