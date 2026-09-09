@@ -15,7 +15,51 @@ with rebindable keys and gamepad support; saving; and a soundtrack.
 
 ![Title screen](tools/shots/01_title.png)
 
-## Running it
+## Installing it
+
+One command, no admin rights, nothing outside your home directory. The installer
+fetches the latest GitHub Release, verifies it against the release's
+`SHA256SUMS`, and puts it in place.
+
+**Windows** (PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/fettglatze/2d-soulslike/main/installer/install.ps1 | iex
+```
+
+**Linux / macOS**:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/fettglatze/2d-soulslike/main/installer/install.sh | bash
+```
+
+It creates a Start Menu / desktop shortcut, and **that shortcut is what keeps
+the game up to date**: every launch checks for a newer release and installs it
+before starting. A failed check never stands between you and the version you
+already have — if GitHub is unreachable, it says so and plays anyway.
+
+| | Linux / macOS | Windows |
+|---|---|---|
+| Install or update | `install.sh` | `install.ps1` |
+| Update, then play | `install.sh --launch` | `install.ps1 -Launch` |
+| Is there an update? | `install.sh --check` | `install.ps1 -Check` |
+| Remove it | `install.sh --uninstall` | `install.ps1 -Uninstall` |
+
+`--check` exits `10` when an update is waiting, so it scripts cleanly. Saves and
+settings live in Godot's user data directory, **outside** the install, so
+updating and uninstalling never touch them.
+
+Overridable through the environment: `AH_REPO`, `AH_API` (a mirror), `AH_RAW`,
+`AH_PREFIX`, `AH_TOKEN`.
+
+> **The repository has to be public for the one-liners to work.** They fetch the
+> script from `raw.githubusercontent.com` and the build from the release, and a
+> private repository answers both with 404 for anyone who is not signed in. If
+> you want to keep it private, everyone who installs needs a token
+> (`AH_TOKEN=ghp_...`), which is not something to hand around — publish the
+> repository, or distribute the zips another way.
+
+### Or from source
 
 1. Install Godot 4.3 or newer: <https://godotengine.org/download>
 2. Open Godot → **Import** → pick this `project.godot`.
@@ -329,8 +373,8 @@ tools/run_tests.sh                      # Godot from PATH
 GODOT=/path/to/godot tools/run_tests.sh # or explicitly
 ```
 
-The runner checks the **level layout** first (reachability, above) and then plays
-**two suites**, together **187 assertions**:
+The runner checks the **level layout** first (reachability, above) and then runs
+**three suites**, together **261 assertions**:
 
 - `tools/smoke_test.gd` (123) boots the real `Main.tscn` and drives it a physics
   frame at a time: landing and movement, the stamina economy (including: an
@@ -341,6 +385,14 @@ The runner checks the **level layout** first (reachability, above) and then play
   harder and slower, that the spear reaches further and hits softer, that the bow
   puts a real arrow in the world that damages what it hits, that the shield
   absorbs a blow and breaks when the stamina runs out.
+- `installer/test_install.sh` (68) serves a **fake GitHub** on localhost and runs
+  both installers against it for real: a clean install, a no-op re-run, `--check`
+  reporting an update, the update itself, `--launch`, an unreachable GitHub, a
+  corrupted download, an asset missing from the checksum file, an install run
+  through a pipe the way the documented one-liner does, an install against a
+  private repository, and uninstall — asserting on the filesystem after each. Testing an installer any other way
+  means publishing a release to find out it is broken, which is the wrong order.
+  PowerShell runs on Linux, so the Windows path is covered here too.
 - `tools/menu_test.gd` (64) walks a player's path: navigating, opening CONTROLS
   and OPTIONS, changing a video setting and checking it reached the engine,
   lowering a volume, rebinding a key and checking the **InputMap** actually moved
@@ -366,13 +418,27 @@ Four traps the runner catches deliberately:
   end — which covers strings assembled at runtime, like `EXPLORED 61%`, that no
   list of literals in a test could ever cover.
 
-## Building a release
+## Building and publishing a release
+
+Locally:
 
 ```bash
 tools/build.sh                       # all three desktop platforms
 tools/build.sh Linux                 # or just one
 GODOT=/path/to/godot tools/build.sh
 ```
+
+For an actual release, tag it and let CI do it:
+
+```bash
+git tag v1.0.1 && git push origin v1.0.1
+```
+
+`.github/workflows/release.yml` then regenerates every asset from its generator,
+**fails if the result differs from what is committed**, runs the full test suite,
+exports all three platforms, writes `SHA256SUMS`, and publishes the release the
+installers read. One Linux runner does all of it, because Godot exports every
+desktop platform from anywhere.
 
 The script regenerates **every asset from its generator**, runs the full test
 suite, and only then exports. That order is the point: the art, the audio and the
@@ -460,6 +526,12 @@ ashen-hollow/
 │   ├─ arrow.png, bolt.png
 │   └─ bonfire.png, torch.png, light_soft.png, rune.png, soul_orb.png
 ├─ assets/audio/          31 WAVs, all synthesised by gen_audio.py
+├─ installer/
+│   ├─ install.sh         Installer and updater for Linux and macOS
+│   ├─ install.ps1        The same for Windows
+│   └─ test_install.sh    Both of them, against a fake GitHub on localhost
+├─ .github/workflows/
+│   └─ release.yml        Tag -> regenerate -> test -> export -> publish
 └─ tools/
     ├─ gen_art.py         >>> The pixel art generator (source of every sprite) <<<
     ├─ gen_level.py       >>> The level generator (+ reachability proof) <<<
