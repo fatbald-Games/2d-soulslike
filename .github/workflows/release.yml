@@ -97,6 +97,10 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p build/windows build/linux build/macos
+          # keeps Godot out of its own output: the exported game sits inside
+          # the project, and importing it back leaves .import files that would
+          # be zipped into the release
+          touch build/.gdignore
           "$GODOT" --headless --path . --import >/dev/null 2>&1 || true
           "$GODOT" --headless --path . --import >/dev/null 2>&1 || true
           for preset in "Windows Desktop" "Linux" "macOS"; do
