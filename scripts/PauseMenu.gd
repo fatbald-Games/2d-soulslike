@@ -195,11 +195,14 @@ func _build_controls() -> Control:
 	var page := _page("CONTROLS", "ESC  BACK")
 	var names: Array = []
 	var keys: Array = []
-	for r in UiTheme.CONTROL_ROWS:
+	var rows := UiTheme.control_rows()
+	for r in rows:
 		names.append(r[0])
 		keys.append(r[1])
-	var box := UiTheme.add_panel(page, names, 1, UiTheme.ROW_STEP, keys, 190.0)
-	UiTheme.add_rows(page, UiTheme.CONTROL_ROWS, box[0], (box[1] as Vector2).x)
+	var box := UiTheme.add_panel(page, names, 1, UiTheme.CONTROL_STEP, keys, 190.0,
+			UiTheme.CONTROL_PANEL_Y)
+	UiTheme.add_rows(page, rows, box[0], (box[1] as Vector2).x,
+			UiTheme.CONTROL_STEP)
 	return page
 
 

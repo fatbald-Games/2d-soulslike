@@ -51,20 +51,30 @@ func _find(node: Node, script_name: String) -> Node:
 	return null
 
 
+## Pick a title-screen entry BY NAME. It used to be picked by index, which is
+## only stable until there is a save to CONTINUE — after that every entry shifts
+## down one and the "controls" shot was quietly a picture of START OVER.
+func _select(entry: String) -> void:
+	var list := _find(_scene, "MenuList") as MenuList
+	var i: int = (_scene.items as Array).find(entry)
+	if i >= 0:
+		list.index = i
+
+
 func _process(_delta: float) -> bool:
 	_f += 1
 	match _f:
 		45:
 			_grab("01_title")
 		48:
-			(_find(_scene, "MenuList") as MenuList).index = 1     # CONTROLS
+			_select("CONTROLS")
 			_key(KEY_ENTER)
 		56:
 			_grab("02_controls")
 		58:
 			_key(KEY_ESCAPE)
 		62:
-			(_find(_scene, "MenuList") as MenuList).index = 2     # OPTIONS
+			_select("OPTIONS")
 			_key(KEY_ENTER)
 		70:
 			_grab("08_options")

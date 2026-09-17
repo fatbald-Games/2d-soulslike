@@ -19,7 +19,8 @@ const ROOT_ITEMS := ["VIDEO", "AUDIO", "CONTROLS", "GAMEPLAY",
 const VIDEO_ITEMS := ["WINDOW", "VSYNC", "FPS LIMIT", "VIGNETTE",
 		"SCREEN SHAKE", "BACK"]
 const AUDIO_ITEMS := ["MASTER", "MUSIC", "SOUND", "AMBIENCE", "BACK"]
-const GAMEPLAY_ITEMS := ["HUD HINTS", "REGION BANNERS", "AUTO EQUIP WEAPONS", "BACK"]
+const GAMEPLAY_ITEMS := ["MOUSE AIM", "HUD HINTS", "REGION BANNERS",
+	"AUTO EQUIP WEAPONS", "BACK"]
 
 ## The controls page is thirteen rows deep, which does not fit under the usual
 ## panel top — so like the progress page it starts higher, heading and all.
@@ -150,7 +151,8 @@ func _values(id: Page) -> Array:
 					Settings.vol_label(Settings.vol_sfx),
 					Settings.vol_label(Settings.vol_ambience), ""]
 		Page.GAMEPLAY:
-			return [Settings.on_off(Settings.hud_hints),
+			return [Settings.on_off(Settings.mouse_aim),
+					Settings.on_off(Settings.hud_hints),
 					Settings.on_off(Settings.region_banners),
 					Settings.on_off(Settings.auto_equip), ""]
 		_:
@@ -290,8 +292,9 @@ func _on_changed(idx: int, dir: int, id: Page) -> void:
 					clampi(idx, 0, 3)], dir)
 		Page.GAMEPLAY:
 			match idx:
-				0: Settings.hud_hints = not Settings.hud_hints
-				1: Settings.region_banners = not Settings.region_banners
-				2: Settings.auto_equip = not Settings.auto_equip
+				0: Settings.mouse_aim = not Settings.mouse_aim
+				1: Settings.hud_hints = not Settings.hud_hints
+				2: Settings.region_banners = not Settings.region_banners
+				3: Settings.auto_equip = not Settings.auto_equip
 			Settings.save()
 	_refresh(id)

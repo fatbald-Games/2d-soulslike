@@ -41,7 +41,12 @@ echo
 echo "=== Export ==="
 # Godot will not create the output folder itself and fails with a bare
 # "target folder does not exist" if it is missing.
+#
+# The .gdignore keeps Godot out of build/ altogether. The exported game sits
+# inside the project, so without it the next import scans its own output and
+# leaves .import files in the folder that then get zipped into the release.
 mkdir -p build/windows build/linux build/macos
+touch build/.gdignore
 
 presets=("Windows Desktop" "Linux" "macOS")
 if [[ $# -gt 0 ]]; then

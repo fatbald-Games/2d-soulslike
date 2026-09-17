@@ -62,6 +62,7 @@ var _soul_orb: Node2D = null
 var _pickups: Array = []             # [{node, pos, id, idx}]
 var _near_bonfire: Dictionary = {}
 var _camera: Camera2D
+var crosshair: Crosshair             # the pixel cursor, when aiming with a mouse
 var _shake := 0.0
 var _sparks: CPUParticles2D
 var _ending: CanvasLayer             # the epilogue, once the last stone is read
@@ -91,6 +92,7 @@ func _ready() -> void:
 	_build_dust()
 	_wire_hud()
 	_build_camera()
+	_build_crosshair()
 	_build_ambience()
 	Audio.music("music_keep")
 	_spawn_soul_orb()
@@ -385,13 +387,13 @@ func _on_weapon_changed(idx: int) -> void:
 
 ## An arrow or a bolt, put into the WORLD rather than parented to the player —
 ## it has to keep flying after he has rolled away or died.
-func _on_shot(from: Vector2, dir: int, damage: float, widx: int) -> void:
+func _on_shot(from: Vector2, aim: Vector2, damage: float, widx: int) -> void:
 	var w := Weapons.def(widx)
 	if not w.has("shot"):
 		return
 	var spec: Dictionary = w["shot"]
 	var pr := Projectile.new()
-	pr.dir = dir
+	pr.aim = aim
 	pr.speed = float(spec["speed"])
 	pr.drop = float(spec["drop"])
 	pr.life = float(spec["life"])
@@ -401,7 +403,7 @@ func _on_shot(from: Vector2, dir: int, damage: float, widx: int) -> void:
 	var s := Sprite2D.new()
 	s.texture = _tex(spec["sprite"])
 	s.centered = true
-	s.flip_h = dir < 0
+	s.flip_h = pr.flipped()
 	pr.add_child(s)
 	pr.struck.connect(_on_hit_landed)
 	add_child(pr)
@@ -700,6 +702,14 @@ func _on_hit_landed(at: Vector2) -> void:
 func _add_shake(amount: float) -> void:
 	if Settings.screen_shake:
 		_shake = minf(4.0, _shake + amount)
+
+
+## The pointer the game draws for itself. Built after the camera, because it
+## lives in world space and is only meaningful once there is a view on it.
+func _build_crosshair() -> void:
+	crosshair = Crosshair.new()
+	crosshair.player = player
+	add_child(crosshair)
 
 
 func _build_camera() -> void:

@@ -54,20 +54,43 @@ static func menu_panel_size(items: Array, scale_px: int = 2,
 			+ PixelLabel.GLYPH_H * scale_px + PANEL_PAD_BOTTOM)
 
 
-## The one control table, shared by the title screen and the pause screen —
-## two copies drift the moment a key is rebound.
-const CONTROL_ROWS := [
-	["MOVE", "A  D"],
-	["JUMP", "SPACE"],
-	["CLIMB", "W  S"],
-	["DROP THROUGH", "S + SPACE"],
-	["ATTACK", "J"],
-	["DODGE ROLL", "K"],
-	["SWAP WEAPON", "TAB"],
-	["GUARD", "L"],
-	["USE  TAKE", "E"],
-	["PAUSE", "ESC"],
-]
+## The control table starts higher than the usual panel, like the options
+## screen's own controls page: thirteen rows are simply taller than the gap
+## between PANEL_Y and the footer. 54 clears the scale-3 heading on both the
+## title screen (which ends at y=47) and the pause screen (y=49).
+const CONTROL_PANEL_Y := 54.0
+
+## Row pitch for the control table specifically. The old ten rows at ROW_STEP
+## ended flush against the footer, and the table is thirteen rows now; nine is
+## the pitch the options screen's own controls page already uses.
+const CONTROL_STEP := 9
+
+
+## The one control table, shared by the title screen and the pause screen.
+##
+## It is BUILT from Keys rather than typed out again. The hand-written copy that
+## used to live here is exactly why: it went on promising SPACE for JUMP and K
+## for DODGE ROLL long after both had moved, and said nothing at all about the
+## mouse — a table of controls that lies is worse than no table.
+##
+## Movement and climbing are folded into one row each, because "MOVE  A  LEFT
+## D  RIGHT" is not more informative than "MOVE  A  D", just longer.
+static func control_rows() -> Array:
+	var rows: Array = [
+		["MOVE", "%s  %s" % [Keys.label("left"), Keys.label("right")]],
+		["AIM", "MOUSE"],
+		["ATTACK", Keys.help_label("attack")],
+		["GUARD", Keys.help_label("block")],
+		["DODGE ROLL", Keys.help_label("dodge")],
+		["JUMP", Keys.help_label("jump")],
+		["CLIMB", "%s  %s" % [Keys.label("up"), Keys.label("down")]],
+		["SWAP WEAPON", Keys.help_label("swap")],
+		["DRINK FLASK", Keys.help_label("heal")],
+		["USE  TAKE", Keys.help_label("interact")],
+	]
+	for r in Keys.FIXED:
+		rows.append([r[0], r[1]])
+	return rows
 
 
 ## Centres a panel sized to its contents on `parent`. Returns [origin, size].

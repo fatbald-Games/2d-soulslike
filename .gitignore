@@ -12,3 +12,6 @@ tools/__pycache__/
 
 # Release builds
 /build/
+
+# Packaged release artefacts
+/dist/

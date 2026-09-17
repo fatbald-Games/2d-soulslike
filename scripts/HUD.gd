@@ -10,6 +10,10 @@ extends CanvasLayer
 const GHOST_DELAY := 0.35        # how long the ghost hangs before it drains
 const GHOST_SPEED := 0.55        # fraction of the bar it sheds per second
 const HINT_HOLD := 7.0           # seconds the control hint stays up
+## The one line that teaches the scheme. A constant rather than a literal so the
+## menu suite can sweep it for glyphs the bone font does not have — a control
+## hint that silently drops half its letters teaches nothing.
+const HINT := "WASD MOVE   LMB ATTACK   RMB GUARD   SHIFT ROLL   WHEEL SWAP"
 
 ## Each point of VIGOR / ENDURANCE makes its bar this much wider. The bar
 ## GROWING is the point — a number going up in a menu is bookkeeping, a bar that
@@ -119,9 +123,7 @@ func _ready() -> void:
 	# The hint used to sit there forever and just added noise. Now it introduces
 	# the controls and fades out; OPTIONS can switch it off entirely.
 	if Settings.hud_hints:
-		_hint = PixelLabel.make(
-				"A D MOVE   SPACE JUMP   J ATTACK   K ROLL   TAB SWAP   L GUARD",
-				1, Color(0.353, 0.322, 0.290, 0.60))
+		_hint = PixelLabel.make(HINT, 1, Color(0.353, 0.322, 0.290, 0.60))
 		_hint.center_on(UiTheme.VIEW.x * 0.5, UiTheme.VIEW.y - 13)
 		add_child(_hint)
 		var fade := create_tween()

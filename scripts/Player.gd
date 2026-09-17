@@ -9,7 +9,7 @@ signal stamina_changed(cur: float, maxv: float)
 signal souls_changed(amount: int)
 signal flask_changed(cur: int, maxv: int)
 signal hit_landed(at: Vector2)
-signal shot(from: Vector2, dir: int, damage: float, weapon: int)
+signal shot(from: Vector2, aim: Vector2, damage: float, weapon: int)
 signal weapon_changed(idx: int)
 signal guarded(at: Vector2, broke: bool)
 signal landed(at: Vector2, force: float)
@@ -72,6 +72,13 @@ const ROLL_COST := 22.0
 ## Below this the drop was a step, not a fall, and nothing should happen.
 const LAND_MIN_FALL := 200.0
 
+## How far the cursor has to be off his centre before he turns to face it. A
+## cursor resting on the knight himself must not make him flicker between sides.
+const FACE_DEADZONE := 8.0
+## Where a swing is measured from, and where an arrow leaves the bow: chest
+## height, not the feet the node is anchored at.
+const CHEST := Vector2(0, -16.0)
+
 const HURT_TIME := 0.28
 const INVULN_AFTER_HIT := 0.65
 
@@ -110,6 +117,11 @@ var _coyote := 0.0                # grace left after walking off an edge
 var _jump_buffer := 0.0           # a jump pressed before he had landed
 var _cut_armed := false           # this rise can still be cut short
 var _level: Node = null            # asked whether a ladder is under him
+## Nothing aims at the cursor until the mouse has actually been moved. A pad
+## player never wants the knight snapping at a cursor parked in a corner, and
+## the headless suites — which send key events and no mouse ones at all —
+## would otherwise be aiming every swing at the top-left of the world.
+var _mouse_seen := false
 
 @onready var sprite: AnimatedSprite2D = $Sprite
 
@@ -199,6 +211,50 @@ func is_invulnerable() -> bool:
 	if _invuln > 0.0:
 		return true
 	return state == State.ROLL and _t >= ROLL_IFRAME_FROM and _t <= ROLL_IFRAME_TO
+
+
+# --- aiming ------------------------------------------------------------------
+## The mouse is only believed once it has moved. Godot reports a cursor position
+## whether or not there is a mouse behind it, so this flag is the difference
+## between "the player is pointing at something" and "the window happens to
+## think the pointer is at 0,0".
+func _input(event: InputEvent) -> void:
+	if event is InputEventMouseMotion:
+		_mouse_seen = true
+
+
+## True while the cursor is steering him: the mouse has moved at least once and
+## the player has not switched the whole scheme off in OPTIONS.
+func aim_active() -> bool:
+	return _mouse_seen and Settings.mouse_aim
+
+
+## What he is pointing at, in world space — the cursor, or straight ahead at
+## chest height when there is no cursor to speak of.
+func aim_point() -> Vector2:
+	if not aim_active():
+		return global_position + CHEST + Vector2(facing * 40.0, 0.0)
+	return get_global_mouse_position()
+
+
+## The same thing as a unit vector out of his chest. Never zero: a click landing
+## exactly on him still has to send the arrow somewhere.
+func aim_dir() -> Vector2:
+	var d := aim_point() - (global_position + CHEST)
+	if d.length_squared() < 1.0:
+		return Vector2(facing, 0.0)
+	return d.normalized()
+
+
+## Turn to face the cursor. Called when he is standing, swinging or guarding —
+## never while he is running, because the run cycle is drawn facing forwards and
+## a knight moonwalking down a corridor undoes every bit of weight in the art.
+func _face_cursor() -> void:
+	if not aim_active():
+		return
+	var dx := get_global_mouse_position().x - global_position.x
+	if absf(dx) >= FACE_DEADZONE:
+		facing = 1 if dx > 0.0 else -1
 
 
 func _physics_process(delta: float) -> void:
@@ -297,6 +353,9 @@ func _ground_state(delta: float) -> void:
 	if Input.is_action_just_pressed("swap") and swap_weapon(1):
 		return
 	if Input.is_action_just_pressed("attack") and _spend(attack_cost()):
+		# the swing is committed the instant it starts, so where you were
+		# pointing when you clicked is the side it goes to
+		_face_cursor()
 		_enter(State.ATTACK)
 		return
 	# raising the shield is not an action with a cost — the cost lands when
@@ -306,6 +365,11 @@ func _ground_state(delta: float) -> void:
 		_enter(State.BLOCK)
 		return
 	if Input.is_action_just_pressed("dodge") and _spend(ROLL_COST):
+		# a roll goes where you are MOVING, not where you are pointing: rolling
+		# into the thing you just clicked on is never what the shoulder wanted
+		var away := Input.get_axis("left", "right")
+		if away != 0.0:
+			facing = 1 if away > 0.0 else -1
 		_enter(State.ROLL)
 		return
 
@@ -325,6 +389,7 @@ func _ground_state(delta: float) -> void:
 		velocity.x = dir * speed
 		_set_state_anim(State.RUN)
 	else:
+		_face_cursor()
 		_decelerate(delta, 700.0)
 		_set_state_anim(State.IDLE)
 
@@ -350,10 +415,17 @@ func _block_state(delta: float) -> void:
 	if not Input.is_action_pressed("block") or not Weapons.can_block(Run.weapon):
 		_enter(State.IDLE)
 		return
+	# the shield faces the cursor, so he can back away from something while
+	# still holding it between himself and the thing — which is the whole point
+	# of a shield and was impossible when the guard faced whichever way he
+	# happened to be shuffling
 	var dir := Input.get_axis("left", "right")
-	if dir != 0.0:
+	if aim_active():
+		_face_cursor()
+	elif dir != 0.0:
 		facing = 1 if dir > 0.0 else -1
-		sprite.flip_h = facing < 0
+	sprite.flip_h = facing < 0
+	if dir != 0.0:
 		velocity.x = dir * speed * BLOCK_SPEED
 	else:
 		_decelerate(delta, 700.0)
@@ -392,7 +464,10 @@ func _climb_state(_delta: float) -> void:
 	if not _on_ladder():
 		_enter(State.IDLE)
 		return
-	if Input.is_action_just_pressed("jump"):
+	# W is both UP and JUMP. On a ladder that has to resolve to climbing, or
+	# tapping upwards again part-way up flings him off the rungs he is trying to
+	# go up; the hop is therefore SPACE (or the pad), which is jump WITHOUT up.
+	if Input.is_action_just_pressed("jump") and not Input.is_action_pressed("up"):
 		velocity.y = LADDER_HOP
 		_cut_armed = true
 		_jump_buffer = 0.0
@@ -494,10 +569,21 @@ func _loose() -> void:
 	if _shot_done:
 		return
 	_shot_done = true
-	shot.emit(global_position + Vector2(facing * 10.0, -16.0), facing,
+	# aimed at the release, not at the click, so a shot can be led onto
+	# something that is moving. He turns with it: an arrow leaving the back of
+	# an archer who is still facing the other way reads as a bug, because it
+	# looks exactly like one.
+	_face_cursor()
+	sprite.flip_h = facing < 0
+	var aim := aim_dir()
+	shot.emit(global_position + CHEST + aim * 10.0, aim,
 			swing_damage(), Run.weapon)
 
 
+## The box a swing sweeps. Deliberately still a flat band: the cursor decides
+## which SIDE he swings at, and nothing more. Sliding the box up and down with
+## the cursor was tried and quietly broke the ordinary case — clicking at a
+## hollow's feet, which is where the eye goes, dragged the box off its body.
 func _hit_rect(reach: float, height: float) -> Rect2:
 	var x := global_position.x if facing > 0 else global_position.x - reach
 	return Rect2(x, global_position.y - height - 2.0, reach, height)
