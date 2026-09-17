@@ -67,24 +67,31 @@ Overridable through the environment: `AH_REPO`, `AH_API` (a mirror), `AH_RAW`,
 
 ## Controls
 
-Every action below is **rebindable** in OPTIONS → CONTROLS, and every one of them
-also has a gamepad binding out of the box.
+The scheme is the one a mouse-and-keyboard player already has in their hands:
+**the left hand never leaves WASD and the right hand fights.** Every key below is
+**rebindable** in OPTIONS → CONTROLS, and every action also has a gamepad binding
+out of the box.
 
-| Key | Action |
+| Input | Action |
 |---|---|
-| `A` / `D` (or ←/→) | Move |
-| `Space` | Jump |
-| `J` or left mouse | Attack |
-| `K` or `Shift` | **Dodge roll** |
-| `L` or right mouse | **Guard** (shield only) |
-| `Tab` or `R` | **Swap weapon** (cycles what you have found) |
+| `W` `A` `S` `D` (or arrows) | Move, and climb a ladder |
+| Mouse | **Aim** — he turns to face the cursor, and arrows leave the bow at it |
+| Left mouse or `J` | Attack |
+| Right mouse or `L` | **Guard** (shield only — the shield tracks the cursor, so you can back away with it still between you and the thing) |
+| `Shift` or `K` | **Dodge roll** — in the direction you are *moving*, not the one you are pointing |
+| `W` or `Space` | Jump. On a ladder `W` keeps climbing and `Space` hops off |
+| Wheel, `Tab` or `R` | **Swap weapon** (cycles what you have found) |
 | `Q` | **Drink flask** (heals, and leaves you defenceless for a beat) |
 | `E` | **Bonfire**: light, rest, level up, travel — and **pick weapons up** |
-| `W` `S` (or ↑/↓) | **Climb** a ladder |
 | `S` + `Space` | **Drop through** a wooden beam |
 | `M` | **Map** |
 | `Esc` | Pause |
 | `↑ ↓` / `W` `S`, `Enter` | In menus: select, confirm |
+
+While you are playing, the system pointer is replaced by a pixel crosshair drawn
+at the game's own resolution; it steps aside the moment a menu opens. Aiming with
+the mouse can be switched off entirely in OPTIONS → GAMEPLAY → MOUSE AIM, which
+gives back the pad-and-keyboard scheme exactly as it was.
 
 The jump is deliberately forgiving, because the most common complaint about this
 whole genre is that its platforming is not:

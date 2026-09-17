@@ -21,6 +21,7 @@ var _scale0 := 0
 var _shake0 := true
 var _fps0 := 0
 var _vol0 := 0
+var _aim0 := true
 
 
 func _initialize() -> void:
@@ -148,9 +149,18 @@ func _unrenderable() -> String:
 	strings.append_array(Settings.VSYNC_MODES)
 	for v in Settings.SCALE_LABELS.values():
 		strings.append(v)
-	for r in UiTheme.CONTROL_ROWS:
+	for r in UiTheme.control_rows():
 		strings.append(r[0])
 		strings.append(r[1])
+	# the mouse names and the one line that teaches the scheme go through the
+	# same font, and LMB / RMB / WHEEL are new letters for it to render
+	for a in Keys.ACTIONS:
+		strings.append(Keys.label(String(a["id"])))
+		strings.append(Keys.help_label(String(a["id"])))
+	# HUD.gd has no class_name (it is only ever instanced by Main), so the hint
+	# is read off the script rather than through a global
+	var hud_script: GDScript = load("res://scripts/HUD.gd")
+	strings.append(String(hud_script.get_script_constant_map()["HINT"]))
 	for a in LevelMap.AREAS:
 		strings.append(a["name"])
 	# the armoury prints every name and every description straight into a panel,
@@ -212,6 +222,24 @@ func _phase_controls_panel() -> void:
 			_list.index = _menu_scene.items.find("CONTROLS")
 			_key(KEY_ENTER)
 		2:
+			var rows := UiTheme.control_rows()
+			var names: Array = []
+			var vals: Array = []
+			for r in rows:
+				names.append(r[0])
+				vals.append(r[1])
+			var psize := UiTheme.menu_panel_size(names, 1,
+					UiTheme.CONTROL_STEP, vals)
+			# the footer band is 17px tall and opaque: a table that runs under
+			# it loses its last rows with no error anywhere
+			_ok("the control table fits above the footer",
+					UiTheme.CONTROL_PANEL_Y + psize.y <= UiTheme.VIEW.y - 17.0,
+					"%d rows reach y=%.0f" % [rows.size(),
+							UiTheme.CONTROL_PANEL_Y + psize.y])
+			# ...and raising it to make room must not run it over the heading
+			_ok("and still clears the heading above it",
+					UiTheme.CONTROL_PANEL_Y >= 50.0,
+					"panel top y=%.0f" % UiTheme.CONTROL_PANEL_Y)
 			_ok("ENTER on CONTROLS opens the controls screen",
 					_menu_scene._screen == 1, "screen=%d" % _menu_scene._screen)
 			_ok("only the controls page is visible",
@@ -308,6 +336,19 @@ func _phase_options() -> void:
 			_ok("the row shows the new key",
 					opt._lists[OptionsMenu.Page.CONTROLS]._values[0].text == "Z",
 					opt._lists[OptionsMenu.Page.CONTROLS]._values[0].text)
+			# the title and pause screens print their own control table. It used
+			# to be typed out by hand and went on promising keys that had moved
+			# years before; it is built from Keys now, and this is the guard.
+			_ok("the shared control table follows a rebind",
+					_control_value("MOVE").contains("Z"),
+					"MOVE shows %s" % _control_value("MOVE"))
+			_ok("the control table names the mouse buttons",
+					_control_value("ATTACK").contains("LMB")
+					and _control_value("GUARD").contains("RMB"),
+					"ATTACK=%s GUARD=%s" % [_control_value("ATTACK"),
+							_control_value("GUARD")])
+			_ok("and it says the mouse aims",
+					_control_value("AIM") == "MOUSE", _control_value("AIM"))
 			# a key that is already taken must be refused, not silently doubled
 			_key(KEY_ENTER)
 		24:
@@ -328,8 +369,29 @@ func _phase_options() -> void:
 					FileAccess.file_exists(Settings.PATH))
 			_key(KEY_ESCAPE)
 		32:
-			_key(KEY_ESCAPE)
+			# --- gameplay ---
+			_key(KEY_DOWN)
+			_key(KEY_ENTER)                 # GAMEPLAY
 		34:
+			_ok("ENTER opens the gameplay page",
+					opt._page == OptionsMenu.Page.GAMEPLAY, "page=%d" % opt._page)
+			_aim0 = Settings.mouse_aim
+			_key(KEY_ENTER)                 # first row is MOUSE AIM
+		36:
+			_ok("ENTER toggles MOUSE AIM", Settings.mouse_aim != _aim0,
+					"%s -> %s" % [_aim0, Settings.mouse_aim])
+			_ok("the row shows the new value",
+					opt._lists[OptionsMenu.Page.GAMEPLAY]._values[0].text
+					== Settings.on_off(Settings.mouse_aim),
+					opt._lists[OptionsMenu.Page.GAMEPLAY]._values[0].text)
+			_key(KEY_ENTER)                 # and back, so the game plays as it shipped
+		38:
+			_ok("and toggles it back", Settings.mouse_aim == _aim0,
+					"%s" % Settings.mouse_aim)
+			_key(KEY_ESCAPE)
+		40:
+			_key(KEY_ESCAPE)
+		42:
 			_ok("ESC returns from OPTIONS", _menu_scene._screen == 0,
 					"screen=%d" % _menu_scene._screen)
 			# leave the player's settings as we found them
@@ -339,6 +401,15 @@ func _phase_options() -> void:
 			Settings.vol_music = _vol0
 			Settings.save()
 			_next()
+
+
+## What the shared control table prints against a row name, or "" if the row is
+## not there at all.
+func _control_value(row_name: String) -> String:
+	for r in UiTheme.control_rows():
+		if String(r[0]) == row_name:
+			return String(r[1])
+	return ""
 
 
 ## Does this action really fire on that key? Rebinding that updates a label but

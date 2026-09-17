@@ -1142,6 +1142,29 @@ def bolt_sprite():
     return grid_to_img(BOLT)
 
 
+# The pixel cursor. The OS pointer is a smooth 32px arrow sitting on top of art
+# whose smallest unit is one fat square pixel -- the one thing on screen that
+# does not belong. Four outlined ticks, a gap wide enough to see what is under
+# them, and a single ember pixel on the exact point being aimed at.
+CROSSHAIR = [
+    "....ooo....",
+    "....oNo....",
+    "....oNo....",
+    "....ooo....",
+    "oooo...oooo",
+    "oNNo.a.oNNo",
+    "oooo...oooo",
+    "....ooo....",
+    "....oNo....",
+    "....oNo....",
+    "....ooo....",
+]
+
+
+def crosshair_sprite():
+    return grid_to_img(CROSSHAIR)
+
+
 # --------------------------------------------------------------- pickups -----
 def weapon_icons():
     """One 14x14 icon per weapon, drawn with the same primitives as the poses —
@@ -2118,6 +2141,7 @@ def main():
     save(hsheet(weapon_icons()), "weapon_icons.png")
     save(arrow_sprite(), "arrow.png")
     save(bolt_sprite(), "bolt.png")
+    save(crosshair_sprite(), "crosshair.png")
 
     hi = hero_idle32()
     pf = hi                      # the idle frames double as the mood-shot hero

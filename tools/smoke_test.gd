@@ -45,6 +45,8 @@ var _guard_hp0 := 0.0
 var _guard_sp0 := 0.0
 var _shield_pickup: Dictionary = {}
 var _weapon0 := 0
+var _shot_aim := Vector2.ZERO
+var _ladder_popped := false
 
 
 func _initialize() -> void:
@@ -133,10 +135,11 @@ func _physics_process(_delta: float) -> bool:
 		9: _phase_bonfire()
 		10: _phase_level_up()
 		11: _phase_weapons()
-		12: _phase_hud()
-		13: _phase_damage_and_death()
-		14: _phase_respawn()
-		15: _phase_ending()
+		12: _phase_controls()
+		13: _phase_hud()
+		14: _phase_damage_and_death()
+		15: _phase_respawn()
+		16: _phase_ending()
 		_: return _finish()
 	return false
 
@@ -800,6 +803,227 @@ func _phase_weapons() -> void:
 ## The HUD is the one part a headless run cannot LOOK at, so assert the things
 ## that made it wrong before: the bone frame is opaque, so a fill added before
 ## it is painted over and the bar reads as empty no matter what the value is.
+## The control scheme itself: WASD, the two mouse buttons, and aiming.
+##
+## Every check here guards something that reads perfectly well in the source and
+## is invisible when it breaks — the ladder that eats W because W is also jump,
+## the click that does not swing because the button was never in the InputMap,
+## the arrow that ignores where you were pointing.
+func _phase_controls() -> void:
+	if _phase_frame == 0:
+		_release_all()
+		_park_player()
+		_player.equip(Weapons.SWORD)
+		_player._mouse_seen = false
+		Settings.mouse_aim = true
+
+		_ok("the left hand lives on WASD",
+				Keys.key_of("left") == KEY_A and Keys.key_of("right") == KEY_D
+				and Keys.key_of("up") == KEY_W and Keys.key_of("down") == KEY_S)
+		_ok("W jumps as well as climbs", Keys.key_of("jump") == KEY_W)
+		_ok("SPACE jumps too, so a ladder can still be hopped off",
+				Keys.alt_key("jump") == KEY_SPACE)
+		_ok("W being two actions is not counted as a clash",
+				Keys.conflict("jump", KEY_W).is_empty(),
+				Keys.conflict("jump", KEY_W))
+		_ok("the left mouse button swings",
+				_action_has_mouse("attack", MOUSE_BUTTON_LEFT))
+		_ok("the right mouse button guards",
+				_action_has_mouse("block", MOUSE_BUTTON_RIGHT))
+		_ok("either way of the wheel swaps weapons",
+				_action_has_mouse("swap", MOUSE_BUTTON_WHEEL_UP)
+				and _action_has_mouse("swap", MOUSE_BUTTON_WHEEL_DOWN))
+		return
+
+	# --- the buttons, end to end ---
+	if _phase_frame == 2:
+		_mouse(MOUSE_BUTTON_LEFT, true)
+		return
+	if _phase_frame == 4:
+		_ok("clicking actually swings", _player.state == Player.State.ATTACK,
+				"state=%d" % _player.state)
+		_mouse(MOUSE_BUTTON_LEFT, false)
+		return
+	if _phase_frame == 32:
+		_player.equip(Weapons.SHIELD)
+		_player.stamina = _player.stamina_max
+		_mouse(MOUSE_BUTTON_RIGHT, true)
+		return
+	if _phase_frame == 35:
+		_ok("holding the right button raises the shield",
+				_player.state == Player.State.BLOCK, "state=%d" % _player.state)
+		_mouse(MOUSE_BUTTON_RIGHT, false)
+		return
+
+	# --- aiming ---
+	if _phase_frame == 38:
+		_release_all()
+		_player.equip(Weapons.SWORD)
+		_player._mouse_seen = false
+		_player.facing = 1
+		_ok("nothing aims at a mouse that has not moved",
+				not _player.aim_active())
+		_ok("and with no mouse he aims straight ahead",
+				_player.aim_dir().is_equal_approx(Vector2.RIGHT),
+				"aim=%s" % _player.aim_dir())
+		_player._input(InputEventMouseMotion.new())
+		_ok("moving the mouse hands him the cursor", _player.aim_active())
+		# headless parks the pointer at the top-left of the viewport, which is
+		# up and to the left of a knight the camera is centred on
+		_ok("and he then aims at it, in two dimensions",
+				_player.aim_point().x < _player.global_position.x
+				and _player.aim_dir().y < 0.0, "aim=%s" % _player.aim_dir())
+		return
+	if _phase_frame == 41:
+		_ok("he turns to face the cursor while standing",
+				_player.facing == -1, "facing=%d" % _player.facing)
+		var ch: Crosshair = _main.crosshair
+		_ok("the game draws its own cursor", ch != null)
+		_ok("and shows it while he is playing", ch != null and ch.wanted())
+		_player.facing = 1
+		Settings.mouse_aim = false
+		return
+	if _phase_frame == 44:
+		_ok("MOUSE AIM off gives the old scheme back exactly",
+				not _player.aim_active() and _player.facing == 1
+				and _player.aim_dir().is_equal_approx(Vector2.RIGHT),
+				"facing=%d aim=%s" % [_player.facing, _player.aim_dir()])
+		_ok("and takes the crosshair away with it",
+				_main.crosshair != null and not _main.crosshair.wanted())
+		Settings.mouse_aim = true
+		return
+
+	# --- the bow looses along the aim, not merely left or right ---
+	if _phase_frame == 46:
+		_player._mouse_seen = true
+		_player.equip(Weapons.BOW)
+		_player.stamina = _player.stamina_max
+		_shot_aim = Vector2.ZERO
+		_player.shot.connect(_record_shot)
+		_press("attack")
+		return
+	if _phase_frame == 48:
+		_release("attack")
+		return
+	if _phase_frame == 70:
+		_player.shot.disconnect(_record_shot)
+		_ok("the bow looses along the aim, not just left or right",
+				_shot_aim.y < -0.05 and is_equal_approx(_shot_aim.length(), 1.0),
+				"aim=%s" % _shot_aim)
+
+		var pr := Projectile.new()
+		pr.aim = Vector2(1.0, -1.0).normalized()
+		pr.speed = 300.0
+		pr.position = _player.global_position + Vector2(0, -16.0)
+		_main.add_child(pr)
+		_ok("an arrow aimed upward leaves the string climbing",
+				pr._vel.x > 0.0 and pr._vel.y < 0.0, "vel=%s" % pr._vel)
+		_ok("and is turned to point along its flight",
+				absf(pr.rotation - pr._vel.angle()) < 0.01,
+				"rot=%.2f vs %.2f" % [pr.rotation, pr._vel.angle()])
+		pr.aim = Vector2.LEFT
+		_ok("a shot to the left is drawn mirrored", pr.flipped())
+		pr.queue_free()
+
+		# --- the ladder, where W has to mean climb ---
+		_release_all()
+		_player.equip(Weapons.SWORD)
+		_player._mouse_seen = false
+		_ladder_tile = _find_ladder_bottom()
+		_player.global_position = Vector2((_ladder_tile.x + 0.5) * LevelMap.TILE,
+				float((_ladder_tile.y + 1) * LevelMap.TILE))
+		_player.velocity = Vector2.ZERO
+		return
+	if _phase_frame == 74:
+		# W presses UP and JUMP in the same instant. On a ladder that has to
+		# resolve to climbing.
+		_y0 = _player.global_position.y
+		_press("up")
+		_press("jump")
+		return
+	if _phase_frame == 78:
+		_ok("W takes hold of the ladder instead of jumping off it",
+				_player.state == Player.State.CLIMB, "state=%d" % _player.state)
+		return
+	if _phase_frame == 96:
+		_ok("and keeps climbing for as long as it is held",
+				_player.state == Player.State.CLIMB
+				and _player.global_position.y < _y0 - 10.0,
+				"state=%d rose %.1f px" % [_player.state,
+						_y0 - _player.global_position.y])
+		_release_all()
+		return
+	if _phase_frame == 99:
+		# the one that actually bites: nobody holds W for a whole ladder, they
+		# tap it. Every tap after the first is a fresh JUST-PRESSED arriving at
+		# a knight who is already on the rungs.
+		_ladder_popped = false
+		_press("up")
+		_press("jump")
+		return
+	if _phase_frame >= 100 and _phase_frame <= 106:
+		# sampled every frame on purpose. A hop off the ladder is SELF-HEALING:
+		# he is flung up, lands back in the ground state, sees UP still held
+		# over a ladder tile and grabs it again a frame later. Look only at the
+		# end and there is nothing left to see — but the player saw the pop.
+		if _player.state != Player.State.CLIMB:
+			_ladder_popped = true
+		if _phase_frame == 106:
+			_ok("and tapping W again part-way up does not fling him off",
+					not _ladder_popped, "let go of the ladder mid-climb")
+			_release_all()
+		return
+	if _phase_frame == 107:
+		_y0 = _player.global_position.y
+		_press("jump")                 # SPACE: jump WITHOUT up
+		return
+	if _phase_frame == 110:
+		_ok("SPACE alone still hops him off it",
+				_player.state != Player.State.CLIMB
+				and _player.global_position.y < _y0 - 2.0,
+				"state=%d rose %.1f px" % [_player.state,
+						_y0 - _player.global_position.y])
+		_release_all()
+		_player._mouse_seen = false
+		Settings.mouse_aim = true
+		_player.equip(_weapon0)
+		_park_player()
+		_next()
+
+
+## Somewhere flat, topped up and safe, so a phase asserts on what it changed
+## rather than on a hollow that wandered into it.
+func _park_player() -> void:
+	_player.global_position = Vector2(72.0, _main.floor_top)
+	_player.velocity = Vector2.ZERO
+	_player.health = _player.health_max
+	_player.stamina = _player.stamina_max
+	_player._invuln = 0.0
+
+
+func _record_shot(_from: Vector2, aim: Vector2, _damage: float,
+		_widx: int) -> void:
+	_shot_aim = aim
+
+
+## A real mouse event through the real input path — not Input.action_press, so
+## this fails if the button is missing from the InputMap rather than passing on
+## an action the test pressed by hand.
+func _mouse(button: int, pressed: bool) -> void:
+	var ev := InputEventMouseButton.new()
+	ev.button_index = button
+	ev.pressed = pressed
+	Input.parse_input_event(ev)
+
+
+func _action_has_mouse(action: String, button: int) -> bool:
+	for ev in InputMap.action_get_events(action):
+		if ev is InputEventMouseButton \
+				and (ev as InputEventMouseButton).button_index == button:
+			return true
+	return false
+
+
 func _phase_hud() -> void:
 	var hud = _main.hud
 	if _phase_frame == 0:

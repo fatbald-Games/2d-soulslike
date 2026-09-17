@@ -199,11 +199,14 @@ func _build_controls_page() -> CanvasLayer:
 	# size the panel to the widest name + key pair, so the two columns line up
 	var names: Array = []
 	var keys: Array = []
-	for r in UiTheme.CONTROL_ROWS:
+	var rows := UiTheme.control_rows()
+	for r in rows:
 		names.append(r[0])
 		keys.append(r[1])
-	var box := UiTheme.add_panel(layer, names, 1, UiTheme.ROW_STEP, keys, 190.0)
-	UiTheme.add_rows(layer, UiTheme.CONTROL_ROWS, box[0], (box[1] as Vector2).x)
+	var box := UiTheme.add_panel(layer, names, 1, UiTheme.CONTROL_STEP, keys, 190.0,
+			UiTheme.CONTROL_PANEL_Y)
+	UiTheme.add_rows(layer, rows, box[0], (box[1] as Vector2).x,
+			UiTheme.CONTROL_STEP)
 	return layer
 
 

@@ -32,6 +32,10 @@ static var vol_ambience := 6
 static var hud_hints := true
 static var region_banners := true
 static var auto_equip := true          # a found weapon goes straight in hand
+## Whether the cursor steers the knight: he turns to face it, arrows leave the
+## bow at it, and a pixel crosshair replaces the system pointer. Off gives back
+## the keyboard-and-pad scheme exactly as it was.
+static var mouse_aim := true
 
 static var _loaded := false
 
@@ -62,6 +66,7 @@ static func load_once() -> void:
 	hud_hints = bool(cfg.get_value("game", "hud_hints", hud_hints))
 	region_banners = bool(cfg.get_value("game", "region_banners", region_banners))
 	auto_equip = bool(cfg.get_value("game", "auto_equip", auto_equip))
+	mouse_aim = bool(cfg.get_value("game", "mouse_aim", mouse_aim))
 	Keys.read(cfg)
 	Keys.apply()
 
@@ -80,6 +85,7 @@ static func save() -> void:
 	cfg.set_value("game", "hud_hints", hud_hints)
 	cfg.set_value("game", "region_banners", region_banners)
 	cfg.set_value("game", "auto_equip", auto_equip)
+	cfg.set_value("game", "mouse_aim", mouse_aim)
 	Keys.write(cfg)
 	cfg.save(PATH)
 
@@ -98,6 +104,7 @@ static func restore_defaults() -> void:
 	hud_hints = true
 	region_banners = true
 	auto_equip = true
+	mouse_aim = true
 	Keys.reset()
 	apply_all()
 	save()

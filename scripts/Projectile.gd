@@ -9,24 +9,36 @@ extends Node2D
 ##
 ## The two ranged weapons differ in the air, not just on the damage line: an
 ## arrow droops on the way out, a bolt goes where you pointed it.
+##
+## It flies along a full direction vector rather than left-or-right, because the
+## bow is aimed with the mouse: a shot fired at something two ledges up has to
+## actually leave the string at that angle.
 
 signal struck(at: Vector2)
 
 const HIT_PAD := Vector2(6, 12)     # how generously a shot counts as a hit
 
-var dir := 1
+var aim := Vector2.RIGHT            # unit vector; set before add_child
 var speed := 320.0
 var drop := 0.0                     # downward acceleration, px/s^2
 var damage := 20.0
 var knock := 60.0
 var life := 1.6
 
-var _vy := 0.0
+var _vel := Vector2.ZERO
 var _level: Level
 
 
+## Whether the sprite is drawn mirrored. The art points right, so anything sent
+## leftwards is flipped and then rotated from the other half of the circle.
+func flipped() -> bool:
+	return aim.x < 0.0
+
+
 func _ready() -> void:
+	_vel = (aim.normalized() if aim.length_squared() > 0.0 else Vector2.RIGHT) * speed
 	_level = get_tree().get_first_node_in_group("level") as Level
+	_aim_sprite()
 
 
 func _physics_process(delta: float) -> void:
@@ -35,14 +47,20 @@ func _physics_process(delta: float) -> void:
 		queue_free()
 		return
 
-	_vy += drop * delta
-	position += Vector2(dir * speed * delta, _vy * delta)
-	# a drooping arrow should visibly nose over, not slide sideways
-	rotation = atan2(_vy, speed) * float(dir)
+	_vel.y += drop * delta
+	position += _vel * delta
+	_aim_sprite()
 
 	if _hit_enemy() or _hit_world():
 		struck.emit(global_position)
 		queue_free()
+
+
+## Point the sprite along the flight. A drooping arrow has to visibly nose over
+## rather than slide sideways, and a mirrored sprite already points backwards,
+## so it is turned from the far side of the circle.
+func _aim_sprite() -> void:
+	rotation = _vel.angle() - PI if flipped() else _vel.angle()
 
 
 func _hit_world() -> bool:
@@ -65,6 +83,6 @@ func _hit_enemy() -> bool:
 		var d: Vector2 = (global_position - centre).abs()
 		if d.x <= HIT_PAD.x and d.y <= HIT_PAD.y:
 			if body.has_method("take_damage"):
-				body.take_damage(damage, global_position - Vector2(dir * 8.0, 0.0))
+				body.take_damage(damage, global_position - _vel.normalized() * 8.0)
 			return true
 	return false
